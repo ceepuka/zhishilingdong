@@ -6,6 +6,52 @@
 
 ---
 
+## 2026-09-29（转公开：密钥体检 → 新建公开仓库 → 重建 Release）
+
+**任务类型**：发布任务（公开分发 + 仓库历史处理）
+
+**第1步 触发**
+- 用户要"转成 public 让外部的人能方便下载体验"，随后选定"统一到 main"、"新建干净的公开仓库"。
+- 前置判断：转 public 等于把**全部 git 历史**摊开，必须先做密钥体检，不能直接点开关。
+
+**第2步 密钥体检（全历史，不是只看 HEAD）**
+- `git rev-list --objects --all` + `git cat-file --batch` dump 全部 1318 个对象（76.5MB）后正则扫描。
+- 命中两处真实泄露：
+  1. 智谱 GLM API Key（`7bbd2908****Lli`），来自提交 `dd3c4d0` 的 `.env`（含 `VITE_GLM_API_KEY` + `VITE_USE_REAL_AI=true`）
+  2. Trae/字节 session ID，来自 `docs/external/Session ID.txt` —— **当时仍在 HEAD 里被追踪**（`git ls-files` 确认）
+- `.env` / `.env.example` 已不在工作树；`Session ID.txt` 必须处理。
+
+**第3步 处置选择**
+- 备选是 `git filter-repo` 重写 48 个提交的历史，但代价高、易漏（reflog / 悬空对象 / 远端缓存）。
+- 选定更彻底的一条：把**当前已干净的工作树**作为一次全新初始提交推到新公开仓库，旧仓库保持 private 当存档。
+- 代价明确：提交历史从 48 个变成 1 个（用户已确认接受）。
+
+**第4步 执行**
+- `git rm --cached` + 磁盘删除 `docs/external/Session ID.txt`，`docs/external/README.md` 记录处置。
+- 工作树终检：261 个追踪文件 × 7 类密钥正则 → 0 命中。
+- `git checkout --orphan main` → `git rm --cached -r .trae .workbuddy/memory` → 单提交（209 文件）。
+- `.gitignore` 增加 `.trae/` 与 `.workbuddy/memory/`（这两处是开发过程产物，含本机路径与内部推理，不进公开仓库）。
+- 先改 URL 再定型：`scripts/publish-release.mjs` 的 `REPO`、`scripts/build-standalone.js` 使用说明模板、`README.md` 加 Release 下载入口 → `--amend` 进初始提交，保证公开的第一个提交不留旧链接。
+- 远端调整：`origin` 改名 `archive`（指向旧私有仓库），新增 `origin` → 新公开仓库，推送 `main`。
+
+**第5步 重建 tag 与 Release**
+- 重建产物（旧 `使用说明.txt` 里还写着旧 URL，路径变更不靠推断）：`tsc --noEmit` → `vite build --config vite.standalone.config.ts` → `build-standalone.js`。
+- 本地 tag `v1.7.1` 原本指向旧 master 历史的提交，删除后重指 `main` HEAD 再推。
+- `publish-release.mjs` 重建 Release，附件 `zhishilingdong-v1.7.1.html`（3.18MB）+ `usage-v1.7.1.txt`。
+
+**第6步 验证**
+- 远端：`visibility=public`、`default_branch=main`、`commits=1`（`5bb1dd2`）、blob 209 个、`.trae/` 与 `.workbuddy/memory/` 存在数 0。
+- **匿名**（不带 token）下载 Release 附件：HTTP 200，3.18MB，完整 `<!doctype html>`，内联 KaTeX woff2 字体在，无外部 `./assets/` 引用。
+
+**踩坑记录**
+- `VAR=$(...) && cmd` **不会**把变量导出给子进程 → `publish-release.mjs` 第一次直接报"缺少 GH_TOKEN"。要写成 `export VAR=$(...)` 或 `VAR=... cmd`。
+- 本机 `curl` 走 HTTPS 代理访问 `github.com` 会 `schannel: failed to receive handshake`；但 `api.github.com` 正常。
+  node 的 `fetch` 直连 `github.com:443` 又被墙。**验证附件可下载要走 `api.github.com` 的 asset 端点**（会 302 到 `release-assets.githubusercontent.com`，那条链路通）。
+- `curl -d '<含中文的 JSON>'` 在 git-bash 里会 SIGTERM，改为先用 node 写 `.json` 文件再 `--data-binary @file`。
+- 建仓库、推送、发布三步都容易在客户端侧被 SIGTERM 打断（服务端往往已成功）→ 每步结束后必须用 API 复核实际状态，不能凭退出码判断。
+
+---
+
 ## 2026-09-29（发布形态定为单文件 HTML + 移除云部署与本地服务 + 首次推送发布包）
 
 **任务类型**：发布任务（发布形态变更 + 打包 + 推送）

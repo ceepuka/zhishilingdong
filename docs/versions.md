@@ -13,6 +13,15 @@
 - 新增 `vite.standalone.config.ts`（构建到 `.tmp-standalone/`）与 `scripts/build-standalone.js`（内联并写入 `release/`）
 - `package.json` version 由 `0.1.0` 更正为 `1.7.1` —— 此前该字段与 versions.md / README 记录的里程碑长期脱节
 
+### 公开仓库建立
+
+- 新建公开仓库 [ceepuka/zhishilingdong](https://github.com/ceepuka/zhishilingdong)（此前仓库为 private，外部无法下载体验）
+- **首次公开采用单提交历史**：公开前全量扫描 git 历史发现两处真实泄露（`.env` 里的智谱 GLM API Key、`docs/external/Session ID.txt` 里的 Trae 会话标识）。
+  `.env` 早已删除，`Session ID.txt` 当时仍在 HEAD 中被追踪 → 与其做历史重写，不如把干净的工作树作为一次全新初始提交推上去
+- 公开仓库**排除开发过程产物**：`.trae/`（开发计划）与 `.workbuddy/memory/`（工作日志，含本机路径与内部推理）加入 `.gitignore`，
+  不进入公开历史；旧私有仓库以 `archive` 远端保留完整历史与这些文件
+- Release `v1.7.1` 在新仓库重建，附件 `zhishilingdong-v1.7.1.html`（3.18MB）+ `usage-v1.7.1.txt`，已用**匿名请求**验证可下载且内容完整
+
 ### 内容修复（v1.7.0 之后累计）
 
 - **中断提示归位内容末尾**：`GenerationNotice` 由标题头之后移到所有内容区块之后；`DocResult`、收藏详情、`SearchContainer` 统一同一口径 —— 提示描述的是"末尾没写完"，位置就该紧接内容尾部

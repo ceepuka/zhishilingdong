@@ -656,6 +656,12 @@ const handleClearAllHistory = () => {
 **仓库只留源码**：`release/` 与 `.tmp-standalone/` 都不入库，成品作为 Release 附件分发，
 避免每次发布在 git 历史里堆积同体积的 blob。
 
+发布仓库：[github.com/ceepuka/zhishilingdong](https://github.com/ceepuka/zhishilingdong)（public）
+· 下载入口：[最新 Release](https://github.com/ceepuka/zhishilingdong/releases/latest)
+
+> **公开仓库不含开发过程产物**：`.trae/`（开发计划）与 `.workbuddy/memory/`（工作日志）已在
+> 首次公开时排除并加入 `.gitignore`。旧私有仓库以 `archive` 远端保留（含完整历史与这些文件）。
+
 > 历史的 CDN 部署（`netlify.toml` / `vercel.json`）与本地静态服务（`server.js` / `start.bat`）
 > 已于 2026-09-29 移除，发布形态统一。
 

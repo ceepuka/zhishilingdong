@@ -1,5 +1,38 @@
 # 演变历史
 
+## 2026-09-29（仓库转公开：敏感文件清理 + 新建单提交历史的公开仓库）
+
+### 事件
+- **反馈**：用户要求"转成 public（推荐）"，目的是让别人能方便下载体验；随后选定"统一到 main"、「新建干净的公开仓库」。
+- **决定**：不直接切公开开关，也不做历史重写，而是把**已清理干净的工作树**作为一次全新初始提交推到新公开仓库。
+
+### 依据（为什么先做密钥体检）
+- 转 public 会把**全部 git 历史**摊开。全历史扫描（1318 个对象 / 76.5MB）命中两处真实泄露：
+  - 智谱 GLM API Key（来自提交 `dd3c4d0` 的 `.env`）；
+  - Trae/字节 session ID（`docs/external/Session ID.txt`，**当时仍在 HEAD 中被追踪**）。
+- `filter-repo` 重写 48 个提交代价高且易漏（reflog / 悬空对象 / 远端缓存）；一次性 orphan 提交更彻底。
+
+### 决策与改动
+
+| 项 | 处理 |
+|----|------|
+| 敏感文件 | `docs/external/Session ID.txt` 从索引与磁盘移除，`docs/external/README.md` 记录处置 |
+| 历史 | `git checkout --orphan main` → 单提交（209 文件） |
+| 公开范围 | `.trae/`（开发计划）与 `.workbuddy/memory/`（工作日志）不进入公开仓库，加入 `.gitignore` |
+| 旧仓库 | 远端 `origin` 改名 `archive`，保持 private 作为完整历史存档 |
+| 新仓库 | `origin` → [ceepuka/zhishilingdong](https://github.com/ceepuka/zhishilingdong)（public，默认分支 `main`） |
+| 链接修正 | `publish-release.mjs` / `build-standalone.js` / `README.md` 的仓库 URL 在初始提交前改完（`--amend`），避免公开第一个提交就带旧链接 |
+| Release | 重建产物 → 重指 tag `v1.7.1` 到 `main` HEAD → 重建 Release（`zhishilingdong-v1.7.1.html` 3.18MB + `usage-v1.7.1.txt`） |
+
+### 验证
+- 远端：`visibility=public`、`default_branch=main`、`commits=1`、blob 209 个、排除目录存在数 0；
+- **匿名**（不带 token）下载附件：HTTP 200 / 3.18MB / 完整 HTML / 内联 KaTeX 字体 / 无外部资源引用。
+
+### 遗留
+- 旧私有仓库历史中的智谱 GLM API Key 仍存在 → **该 Key 应轮换**（仓库保持 private 只是降低暴露面，不等于失效）。
+
+---
+
 ## 2026-09-29（发布形态统一为单文件 HTML）
 
 ### 事件
