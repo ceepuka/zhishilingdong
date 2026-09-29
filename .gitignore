@@ -1,0 +1,28 @@
+remotion-videos
+node_modules
+ai-office-assistant-demo.zip
+.env
+.env.local
+.env.production
+.DS_Store
+*.log
+.vercel
+
+# 发布构建产物 —— 仓库只留源码，HTML 挂 GitHub Release 附件
+# （.tmp-standalone 是内联用的原料，release/ 是成品，两者都不入库）
+.tmp-standalone
+release
+
+# 构建/测试产生的临时文件（Vite timestamp 快照、测试输出）
+*.config.ts.timestamp-*.mjs
+vitest_out.txt
+.vitest-out.txt
+
+# 评测/视频制作的中间产物（抽帧截图、临时音频、调试日志）——非仓库内容
+.workbuddy/eval_shots/
+
+# 本地开发过程产物 —— 不进入公开仓库
+# （.trae/documents 是开发计划、.workbuddy/memory 是工作日志，含本机路径与内部推理，
+#   对开源读者无价值。旧私有仓库 archive 远端仍保留它们。）
+.trae/
+.workbuddy/memory/

@@ -1,0 +1,776 @@
+{
+    "files": {
+        "config/components.json": {
+            "lastModified": "2026-07-14T13:41:55",
+            "size": 1946
+        },
+        "docs/architecture.md": {
+            "lastModified": "2026-09-29T10:37:27",
+            "size": 54030
+        },
+        "docs/content-quality.md": {
+            "lastModified": "2026-07-14T13:33:01",
+            "size": 2992
+        },
+        "docs/convention.md": {
+            "lastModified": "2026-09-15T13:08:18",
+            "size": 9491
+        },
+        "docs/demo_release_content.md": {
+            "lastModified": "2026-09-29T10:19:35",
+            "size": 7984
+        },
+        "docs/design.md": {
+            "lastModified": "2026-09-15T13:52:38",
+            "size": 77168
+        },
+        "docs/external/README.md": {
+            "lastModified": "2026-07-14T13:47:21",
+            "size": 987
+        },
+        "docs/external/Session ID.txt": {
+            "lastModified": "2026-07-14T16:01:52",
+            "size": 6932
+        },
+        "docs/external/log3.PNG": {
+            "lastModified": "2026-07-05T21:15:14",
+            "size": 269790
+        },
+        "docs/external/log4.PNG": {
+            "lastModified": "2026-07-07T15:30:50",
+            "size": 190334
+        },
+        "docs/external/log5.PNG": {
+            "lastModified": "2026-07-07T15:31:47",
+            "size": 129607
+        },
+        "docs/external/log6.PNG": {
+            "lastModified": "2026-07-09T14:30:28",
+            "size": 293338
+        },
+        "docs/external/log7.PNG": {
+            "lastModified": "2026-07-11T21:39:35",
+            "size": 282457
+        },
+        "docs/external/log8.PNG": {
+            "lastModified": "2026-07-11T23:50:09",
+            "size": 215314
+        },
+        "docs/external/log9.PNG": {
+            "lastModified": "2026-07-14T23:59:10",
+            "size": 294748
+        },
+        "docs/external/主界面.PNG": {
+            "lastModified": "2026-07-15T22:40:15",
+            "size": 224060
+        },
+        "docs/external/开发截图log1.PNG": {
+            "lastModified": "2026-07-02T02:10:12",
+            "size": 162500
+        },
+        "docs/external/开发截图log2.PNG": {
+            "lastModified": "2026-07-02T02:16:00",
+            "size": 148772
+        },
+        "docs/external/文档.PNG": {
+            "lastModified": "2026-07-15T22:56:07",
+            "size": 184374
+        },
+        "docs/external/查知识.PNG": {
+            "lastModified": "2026-07-15T22:44:56",
+            "size": 208296
+        },
+        "docs/external/查词.PNG": {
+            "lastModified": "2026-07-15T22:54:20",
+            "size": 148359
+        },
+        "docs/external/知识灵动助手-开发需求.md": {
+            "lastModified": "2026-07-01T22:17:35",
+            "size": 5088
+        },
+        "docs/goal.md": {
+            "lastModified": "2026-09-10T20:39:38",
+            "size": 8391
+        },
+        "docs/history.md": {
+            "lastModified": "2026-09-29T10:37:41",
+            "size": 228067
+        },
+        "docs/issues.md": {
+            "lastModified": "2026-09-20T13:57:57",
+            "size": 49569
+        },
+        "docs/lessons/config.md": {
+            "lastModified": "2026-09-14T16:02:08",
+            "size": 2152
+        },
+        "docs/lessons/data.md": {
+            "lastModified": "2026-07-14T13:41:55",
+            "size": 34
+        },
+        "docs/lessons/framework.md": {
+            "lastModified": "2026-09-14T13:44:32",
+            "size": 2890
+        },
+        "docs/lessons/function.md": {
+            "lastModified": "2026-07-14T13:41:56",
+            "size": 679
+        },
+        "docs/lessons/index.md": {
+            "lastModified": "2026-09-14T16:02:31",
+            "size": 16776
+        },
+        "docs/lessons/logic.md": {
+            "lastModified": "2026-09-13T13:23:01",
+            "size": 31497
+        },
+        "docs/lessons/other.md": {
+            "lastModified": "2026-09-06T08:15:50",
+            "size": 2167
+        },
+        "docs/lessons/performance.md": {
+            "lastModified": "2026-07-14T13:41:56",
+            "size": 28
+        },
+        "docs/lessons/security.md": {
+            "lastModified": "2026-07-14T13:41:56",
+            "size": 28
+        },
+        "docs/lessons/test.md": {
+            "lastModified": "2026-07-14T13:41:56",
+            "size": 28
+        },
+        "docs/milestones/m001-framework/README.md": {
+            "lastModified": "2026-08-04T20:47:22",
+            "size": 1654
+        },
+        "docs/milestones/m002-search/README.md": {
+            "lastModified": "2026-09-09T11:22:56",
+            "size": 2908
+        },
+        "docs/milestones/m003-translate/README.md": {
+            "lastModified": "2026-08-04T20:46:59",
+            "size": 1574
+        },
+        "docs/milestones/m004-doc/README.md": {
+            "lastModified": "2026-08-04T20:47:08",
+            "size": 1484
+        },
+        "docs/milestones/m005-visualization/README.md": {
+            "lastModified": "2026-09-04T08:49:09",
+            "size": 1358
+        },
+        "docs/milestones/m006-algorithm/README.md": {
+            "lastModified": "2026-09-04T08:49:45",
+            "size": 1475
+        },
+        "docs/milestones/m007-chat/README.md": {
+            "lastModified": "2026-08-04T20:46:30",
+            "size": 1948
+        },
+        "docs/prd.md": {
+            "lastModified": "2026-09-10T20:39:28",
+            "size": 25787
+        },
+        "docs/progress.md": {
+            "lastModified": "2026-09-20T13:58:39",
+            "size": 58863
+        },
+        "docs/project-document-manager.md": {
+            "lastModified": "2026-09-12T14:12:43",
+            "size": 9841
+        },
+        "docs/refactor-history-module.md": {
+            "lastModified": "2026-07-14T14:34:00",
+            "size": 9639
+        },
+        "docs/references/_shared/fonts/GeistMono-Bold.ttf": {
+            "lastModified": "2026-06-26T06:00:30",
+            "size": 78304
+        },
+        "docs/references/_shared/fonts/GeistMono-Regular.ttf": {
+            "lastModified": "2026-06-26T06:00:30",
+            "size": 78232
+        },
+        "docs/references/_shared/fonts/InstrumentSans-Bold.ttf": {
+            "lastModified": "2026-06-26T06:00:30",
+            "size": 68084
+        },
+        "docs/references/_shared/fonts/InstrumentSans-BoldItalic.ttf": {
+            "lastModified": "2026-06-26T06:00:30",
+            "size": 70004
+        },
+        "docs/references/_shared/fonts/InstrumentSans-Italic.ttf": {
+            "lastModified": "2026-06-26T06:00:30",
+            "size": 69900
+        },
+        "docs/references/_shared/fonts/InstrumentSans-Regular.ttf": {
+            "lastModified": "2026-06-26T06:00:30",
+            "size": 68028
+        },
+        "docs/references/_shared/js/echarts.min.js": {
+            "lastModified": "2026-06-26T06:00:30",
+            "size": 1030855
+        },
+        "docs/references/_shared/js/mermaid.min.js": {
+            "lastModified": "2026-06-26T06:00:30",
+            "size": 2571900
+        },
+        "docs/references/ai-office-assistant.html": {
+            "lastModified": "2026-06-26T06:00:30",
+            "size": 37364
+        },
+        "docs/references/assets/architecture_diagram.jpg": {
+            "lastModified": "2026-06-26T06:00:30",
+            "size": 113462
+        },
+        "docs/references/assets/hero_cover.jpg": {
+            "lastModified": "2026-06-26T06:00:30",
+            "size": 120906
+        },
+        "docs/references/assets/ui_mockup.jpg": {
+            "lastModified": "2026-06-26T06:00:30",
+            "size": 104614
+        },
+        "docs/references/assets/visualization_demo.jpg": {
+            "lastModified": "2026-06-26T06:00:30",
+            "size": 118211
+        },
+        "docs/todo.md": {
+            "lastModified": "2026-09-29T10:37:49",
+            "size": 6551
+        },
+        "docs/versions.md": {
+            "lastModified": "2026-09-29T10:37:18",
+            "size": 40251
+        },
+        "docs/workflow-manager.md": {
+            "lastModified": "2026-09-04T08:47:49",
+            "size": 7786
+        },
+        "docs/worklog.md": {
+            "lastModified": "2026-09-29T10:37:49",
+            "size": 163872
+        },
+        "scripts/build-manifest.js": {
+            "lastModified": "2026-09-11T14:26:55",
+            "size": 1795
+        },
+        "scripts/build-standalone.js": {
+            "lastModified": "2026-09-29T10:15:31",
+            "size": 13237
+        },
+        "scripts/publish-release.mjs": {
+            "lastModified": "2026-09-29T10:47:42",
+            "size": 6456
+        },
+        "scripts/smoke-test.ts": {
+            "lastModified": "2026-09-04T16:59:18",
+            "size": 21406
+        },
+        "src/App.tsx": {
+            "lastModified": "2026-09-14T13:41:31",
+            "size": 3743
+        },
+        "src/components/cards/CompareCard.tsx": {
+            "lastModified": "2026-07-14T14:51:13",
+            "size": 1620
+        },
+        "src/components/cards/ConceptCard.tsx": {
+            "lastModified": "2026-07-14T13:47:25",
+            "size": 1057
+        },
+        "src/components/cards/FormulaCard.tsx": {
+            "lastModified": "2026-07-14T13:47:26",
+            "size": 967
+        },
+        "src/components/cards/HierarchyCard.tsx": {
+            "lastModified": "2026-07-14T13:47:26",
+            "size": 1545
+        },
+        "src/components/cards/ProcessCard.tsx": {
+            "lastModified": "2026-07-14T13:47:26",
+            "size": 1336
+        },
+        "src/components/cards/TimelineCard.tsx": {
+            "lastModified": "2026-07-14T13:47:26",
+            "size": 1010
+        },
+        "src/components/cards/index.tsx": {
+            "lastModified": "2026-07-14T13:47:26",
+            "size": 836
+        },
+        "src/components/favorites/FavoritesPanel.tsx": {
+            "lastModified": "2026-07-14T15:06:24",
+            "size": 1345
+        },
+        "src/components/history/HistorySidebar.tsx": {
+            "lastModified": "2026-09-20T11:03:51",
+            "size": 9170
+        },
+        "src/components/history/__tests__/historySidebar.test.tsx": {
+            "lastModified": "2026-09-20T11:06:06",
+            "size": 5835
+        },
+        "src/components/knowledge/KnowledgeContentView.tsx": {
+            "lastModified": "2026-09-20T10:15:55",
+            "size": 52768
+        },
+        "src/components/layout/Header.tsx": {
+            "lastModified": "2026-09-11T08:40:57",
+            "size": 15365
+        },
+        "src/components/layout/TabNav.tsx": {
+            "lastModified": "2026-09-10T18:13:23",
+            "size": 2429
+        },
+        "src/components/settings/AddProviderForm.tsx": {
+            "lastModified": "2026-09-10T18:30:45",
+            "size": 8469
+        },
+        "src/components/settings/ModelSelector.tsx": {
+            "lastModified": "2026-09-10T19:04:09",
+            "size": 9645
+        },
+        "src/components/settings/ProviderKeyInput.tsx": {
+            "lastModified": "2026-09-10T19:04:09",
+            "size": 12111
+        },
+        "src/components/settings/WanxKeyInput.tsx": {
+            "lastModified": "2026-09-11T08:40:37",
+            "size": 3837
+        },
+        "src/components/settings/providerTemplates.ts": {
+            "lastModified": "2026-09-11T08:43:30",
+            "size": 3687
+        },
+        "src/components/ui/Button.tsx": {
+            "lastModified": "2026-07-14T14:34:00",
+            "size": 1218
+        },
+        "src/components/ui/Card.tsx": {
+            "lastModified": "2026-07-14T14:51:13",
+            "size": 502
+        },
+        "src/components/ui/ConfirmDialog.tsx": {
+            "lastModified": "2026-09-10T18:12:58",
+            "size": 2102
+        },
+        "src/components/ui/GenerationNotice.tsx": {
+            "lastModified": "2026-09-15T11:32:48",
+            "size": 5694
+        },
+        "src/components/ui/ImageFigure.tsx": {
+            "lastModified": "2026-09-11T08:09:42",
+            "size": 5411
+        },
+        "src/components/ui/Input.tsx": {
+            "lastModified": "2026-07-14T13:47:27",
+            "size": 1263
+        },
+        "src/components/ui/LatexText.tsx": {
+            "lastModified": "2026-09-15T12:53:44",
+            "size": 4112
+        },
+        "src/components/ui/MarkdownContent.tsx": {
+            "lastModified": "2026-09-15T12:57:13",
+            "size": 4020
+        },
+        "src/components/ui/SvgFigure.tsx": {
+            "lastModified": "2026-09-11T10:32:49",
+            "size": 1683
+        },
+        "src/components/ui/Tag.tsx": {
+            "lastModified": "2026-07-14T14:51:13",
+            "size": 807
+        },
+        "src/components/ui/__tests__/generationNotice.test.tsx": {
+            "lastModified": "2026-09-15T11:37:29",
+            "size": 4419
+        },
+        "src/components/ui/__tests__/latexText.test.tsx": {
+            "lastModified": "2026-09-15T13:02:36",
+            "size": 5190
+        },
+        "src/components/ui/__tests__/markdownContent.test.tsx": {
+            "lastModified": "2026-09-15T13:00:59",
+            "size": 2393
+        },
+        "src/hooks/HistoryContext.tsx": {
+            "lastModified": "2026-09-20T13:53:02",
+            "size": 26465
+        },
+        "src/hooks/__tests__/historyMultiTab.test.tsx": {
+            "lastModified": "2026-09-20T12:08:52",
+            "size": 5418
+        },
+        "src/hooks/__tests__/historyViewing.test.tsx": {
+            "lastModified": "2026-09-20T13:53:23",
+            "size": 15950
+        },
+        "src/hooks/__tests__/useFavorites.test.tsx": {
+            "lastModified": "2026-09-15T13:01:48",
+            "size": 3836
+        },
+        "src/hooks/useAIConfig.ts": {
+            "lastModified": "2026-09-09T18:32:02",
+            "size": 11103
+        },
+        "src/hooks/useAIConfigStore.ts": {
+            "lastModified": "2026-09-03T11:37:37",
+            "size": 4803
+        },
+        "src/hooks/useCommonsImage.ts": {
+            "lastModified": "2026-09-10T13:02:26",
+            "size": 1228
+        },
+        "src/hooks/useFavorites.ts": {
+            "lastModified": "2026-09-15T12:55:45",
+            "size": 9782
+        },
+        "src/hooks/useLanguage.ts": {
+            "lastModified": "2026-09-10T13:51:12",
+            "size": 1464
+        },
+        "src/hooks/useLanguageStore.ts": {
+            "lastModified": "2026-09-10T13:51:07",
+            "size": 2504
+        },
+        "src/hooks/useSpeechSynthesis.ts": {
+            "lastModified": "2026-09-10T19:17:24",
+            "size": 3251
+        },
+        "src/hooks/useStrings.ts": {
+            "lastModified": "2026-09-10T18:11:24",
+            "size": 816
+        },
+        "src/hooks/useTheme.ts": {
+            "lastModified": "2026-07-20T22:09:35",
+            "size": 2376
+        },
+        "src/hooks/useTimeRefresh.ts": {
+            "lastModified": "2026-07-14T14:34:00",
+            "size": 466
+        },
+        "src/hooks/useWanxImage.ts": {
+            "lastModified": "2026-09-11T08:10:16",
+            "size": 936
+        },
+        "src/i18n/__tests__/languages.test.ts": {
+            "lastModified": "2026-09-10T13:56:49",
+            "size": 1607
+        },
+        "src/i18n/__tests__/strings.test.ts": {
+            "lastModified": "2026-09-14T13:42:21",
+            "size": 1076
+        },
+        "src/i18n/languages.ts": {
+            "lastModified": "2026-09-10T13:56:44",
+            "size": 5897
+        },
+        "src/i18n/strings/aiProviderTexts.ts": {
+            "lastModified": "2026-09-11T08:43:16",
+            "size": 4729
+        },
+        "src/i18n/strings/common.ts": {
+            "lastModified": "2026-09-14T13:38:36",
+            "size": 4710
+        },
+        "src/i18n/strings/docTemplates.ts": {
+            "lastModified": "2026-09-10T19:04:55",
+            "size": 23087
+        },
+        "src/i18n/strings/index.ts": {
+            "lastModified": "2026-09-10T18:11:06",
+            "size": 3033
+        },
+        "src/i18n/strings/misc.ts": {
+            "lastModified": "2026-09-15T12:55:28",
+            "size": 9024
+        },
+        "src/i18n/strings/search.ts": {
+            "lastModified": "2026-09-15T11:32:33",
+            "size": 17667
+        },
+        "src/i18n/strings/settings.ts": {
+            "lastModified": "2026-09-10T19:22:55",
+            "size": 8954
+        },
+        "src/i18n/strings/translate.ts": {
+            "lastModified": "2026-09-11T08:18:53",
+            "size": 4587
+        },
+        "src/main.tsx": {
+            "lastModified": "2026-07-14T13:47:27",
+            "size": 278
+        },
+        "src/modules/doc/DocEditor.tsx": {
+            "lastModified": "2026-09-10T19:07:52",
+            "size": 3195
+        },
+        "src/modules/doc/DocResult.tsx": {
+            "lastModified": "2026-09-20T10:16:28",
+            "size": 5922
+        },
+        "src/modules/doc/DocTypeSelector.tsx": {
+            "lastModified": "2026-09-10T19:07:52",
+            "size": 3155
+        },
+        "src/modules/doc/index.tsx": {
+            "lastModified": "2026-09-20T11:05:12",
+            "size": 11547
+        },
+        "src/modules/doc/templates.ts": {
+            "lastModified": "2026-09-10T19:05:03",
+            "size": 2620
+        },
+        "src/modules/favorites/FavoriteContent.tsx": {
+            "lastModified": "2026-09-19T16:43:36",
+            "size": 8651
+        },
+        "src/modules/favorites/__tests__/favoritesDetail.test.tsx": {
+            "lastModified": "2026-09-15T13:49:31",
+            "size": 8823
+        },
+        "src/modules/favorites/index.tsx": {
+            "lastModified": "2026-09-20T10:16:39",
+            "size": 22007
+        },
+        "src/modules/search/KnowledgeGraph.tsx": {
+            "lastModified": "2026-09-10T19:25:56",
+            "size": 6660
+        },
+        "src/modules/search/QASection.tsx": {
+            "lastModified": "2026-09-13T12:58:15",
+            "size": 8236
+        },
+        "src/modules/search/SearchResults.tsx": {
+            "lastModified": "2026-09-15T13:47:59",
+            "size": 12367
+        },
+        "src/modules/search/__tests__/mindmapDescSize.test.ts": {
+            "lastModified": "2026-09-10T13:08:48",
+            "size": 3948
+        },
+        "src/modules/search/__tests__/searchModeSwitch.test.tsx": {
+            "lastModified": "2026-09-20T11:40:00",
+            "size": 5504
+        },
+        "src/modules/search/__tests__/searchResultsLatex.test.tsx": {
+            "lastModified": "2026-09-15T13:49:25",
+            "size": 5017
+        },
+        "src/modules/search/__tests__/searchResultsStreaming.test.tsx": {
+            "lastModified": "2026-09-11T13:42:09",
+            "size": 2681
+        },
+        "src/modules/search/__tests__/useSearchStateMachine.test.tsx": {
+            "lastModified": "2026-09-20T10:29:31",
+            "size": 16746
+        },
+        "src/modules/search/components/HotTags.tsx": {
+            "lastModified": "2026-09-10T18:42:19",
+            "size": 750
+        },
+        "src/modules/search/components/QAContainer.tsx": {
+            "lastModified": "2026-09-10T18:44:23",
+            "size": 4176
+        },
+        "src/modules/search/components/SearchContainer.tsx": {
+            "lastModified": "2026-09-20T10:16:07",
+            "size": 5635
+        },
+        "src/modules/search/components/SearchInput.tsx": {
+            "lastModified": "2026-09-10T18:42:19",
+            "size": 2300
+        },
+        "src/modules/search/components/SearchModeSelector.tsx": {
+            "lastModified": "2026-09-10T18:42:19",
+            "size": 1932
+        },
+        "src/modules/search/hooks/useSearchMode.ts": {
+            "lastModified": "2026-09-20T11:05:38",
+            "size": 6353
+        },
+        "src/modules/search/index.tsx": {
+            "lastModified": "2026-09-20T11:40:40",
+            "size": 13657
+        },
+        "src/modules/search/mockData.ts": {
+            "lastModified": "2026-09-10T10:13:15",
+            "size": 122882
+        },
+        "src/modules/search/services/QAService.ts": {
+            "lastModified": "2026-09-10T18:58:21",
+            "size": 1638
+        },
+        "src/modules/search/useSearchStateMachine.ts": {
+            "lastModified": "2026-09-20T10:15:25",
+            "size": 23045
+        },
+        "src/modules/translate/SentenceResult.tsx": {
+            "lastModified": "2026-09-10T18:34:52",
+            "size": 12438
+        },
+        "src/modules/translate/TranslateInput.tsx": {
+            "lastModified": "2026-09-10T18:33:21",
+            "size": 7907
+        },
+        "src/modules/translate/WordResult.tsx": {
+            "lastModified": "2026-09-11T08:19:01",
+            "size": 7747
+        },
+        "src/modules/translate/__tests__/constants.test.ts": {
+            "lastModified": "2026-09-10T13:57:05",
+            "size": 798
+        },
+        "src/modules/translate/__tests__/translateService.test.ts": {
+            "lastModified": "2026-09-10T13:58:02",
+            "size": 1654
+        },
+        "src/modules/translate/constants.ts": {
+            "lastModified": "2026-09-10T13:53:49",
+            "size": 698
+        },
+        "src/modules/translate/index.tsx": {
+            "lastModified": "2026-09-20T07:32:52",
+            "size": 15816
+        },
+        "src/modules/translate/mockData.ts": {
+            "lastModified": "2026-09-11T08:18:43",
+            "size": 39368
+        },
+        "src/services/__tests__/baseAIProvider.test.ts": {
+            "lastModified": "2026-09-13T13:21:57",
+            "size": 22509
+        },
+        "src/services/__tests__/continuation.test.ts": {
+            "lastModified": "2026-09-15T11:38:49",
+            "size": 15511
+        },
+        "src/services/__tests__/disableThinking.test.ts": {
+            "lastModified": "2026-09-12T13:22:48",
+            "size": 4708
+        },
+        "src/services/__tests__/generateStreamPartial.test.ts": {
+            "lastModified": "2026-09-20T10:22:04",
+            "size": 4678
+        },
+        "src/services/__tests__/mockAIService.test.ts": {
+            "lastModified": "2026-09-13T11:35:40",
+            "size": 11905
+        },
+        "src/services/__tests__/streamFallback.test.ts": {
+            "lastModified": "2026-09-15T11:37:16",
+            "size": 7151
+        },
+        "src/services/aiServiceProvider.ts": {
+            "lastModified": "2026-09-09T10:56:58",
+            "size": 5918
+        },
+        "src/services/baseAIProvider.ts": {
+            "lastModified": "2026-09-20T10:15:07",
+            "size": 128492
+        },
+        "src/services/commonsImage.ts": {
+            "lastModified": "2026-09-10T13:01:57",
+            "size": 6020
+        },
+        "src/services/mockAIService.ts": {
+            "lastModified": "2026-09-13T11:34:47",
+            "size": 26188
+        },
+        "src/services/providers/genericProvider.ts": {
+            "lastModified": "2026-09-13T11:19:44",
+            "size": 4557
+        },
+        "src/services/streaming/__tests__/interruption.test.ts": {
+            "lastModified": "2026-09-15T11:36:44",
+            "size": 7080
+        },
+        "src/services/streaming/__tests__/partialJSON.test.ts": {
+            "lastModified": "2026-09-12T11:05:41",
+            "size": 8823
+        },
+        "src/services/streaming/__tests__/sseReaderTimeout.test.ts": {
+            "lastModified": "2026-09-20T12:07:12",
+            "size": 6134
+        },
+        "src/services/streaming/interruption.ts": {
+            "lastModified": "2026-09-15T11:32:09",
+            "size": 9239
+        },
+        "src/services/streaming/partialJSON.ts": {
+            "lastModified": "2026-09-12T11:04:03",
+            "size": 12033
+        },
+        "src/services/streaming/sseReader.ts": {
+            "lastModified": "2026-09-15T11:29:52",
+            "size": 11616
+        },
+        "src/services/wanxImage.ts": {
+            "lastModified": "2026-09-11T08:10:09",
+            "size": 4923
+        },
+        "src/styles/index.css": {
+            "lastModified": "2026-09-11T10:33:01",
+            "size": 1937
+        },
+        "src/types/ai.ts": {
+            "lastModified": "2026-09-15T11:31:58",
+            "size": 9315
+        },
+        "src/types/aiProviders.ts": {
+            "lastModified": "2026-09-12T13:22:28",
+            "size": 26635
+        },
+        "src/types/index.ts": {
+            "lastModified": "2026-09-20T09:49:41",
+            "size": 10466
+        },
+        "src/utils/__tests__/export.test.ts": {
+            "lastModified": "2026-09-15T13:26:33",
+            "size": 1736
+        },
+        "src/utils/__tests__/inlineSvg.test.ts": {
+            "lastModified": "2026-09-11T10:39:18",
+            "size": 2535
+        },
+        "src/utils/__tests__/latex.test.ts": {
+            "lastModified": "2026-09-11T17:07:37",
+            "size": 5225
+        },
+        "src/utils/__tests__/preview.test.ts": {
+            "lastModified": "2026-09-15T13:00:52",
+            "size": 2287
+        },
+        "src/utils/export.ts": {
+            "lastModified": "2026-09-15T13:26:18",
+            "size": 17591
+        },
+        "src/utils/inlineSvg.ts": {
+            "lastModified": "2026-09-11T10:39:02",
+            "size": 3647
+        },
+        "src/utils/jsonRepair.ts": {
+            "lastModified": "2026-09-04T08:27:19",
+            "size": 8476
+        },
+        "src/utils/latex.ts": {
+            "lastModified": "2026-09-11T17:07:32",
+            "size": 5788
+        },
+        "src/utils/preview.ts": {
+            "lastModified": "2026-09-15T12:54:17",
+            "size": 2519
+        },
+        "src/utils/time.ts": {
+            "lastModified": "2026-09-20T09:50:51",
+            "size": 991
+        },
+        "src/vite-env.d.ts": {
+            "lastModified": "2026-07-14T13:47:29",
+            "size": 38
+        }
+    }
+}

@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'InstrumentSans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 16px;
+  }
+  .text-xs {
+    font-size: 12px !important;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  html.dark body {
+    background-color: #09090b;
+  }
+}
+
+@layer components {
+  .card-shadow {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  }
+  .card-shadow-lg {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  }
+  .gradient-bg {
+    background: linear-gradient(135deg, #0d9488 0%, #14b8a6 100%);
+  }
+  html.dark .card-shadow {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+  }
+  html.dark .card-shadow-lg {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* AI 生成的内联 SVG 示意图：自适应容器、居中、不溢出 */
+.svg-figure > svg {
+  display: block;
+  max-width: 100%;
+  /* 关键：同时受 max-height 约束并保持宽高比 —— 否则高图会被容器 overflow:hidden 裁掉
+     （如电路图顶部的元件标签）。--svg-figure-max-h 由 SvgFigure 按用途注入。 */
+  max-height: var(--svg-figure-max-h, 260px);
+  width: auto;
+  height: auto;
+  margin: 0 auto;
+  color: #0f172a;
+}
+
+/* 数学/物理类内容里的公式排版 */
+.katex {
+  font-size: 1.05em;
+}
+
+.algorithm-bar {
+  transition: all 0.3s ease;
+}
+
+.highlight-compare {
+  background-color: #fbbf24 !important;
+}
+
+.highlight-swap {
+  background-color: #ef4444 !important;
+}
+
+.highlight-sorted {
+  background-color: #22c55e !important;
+}

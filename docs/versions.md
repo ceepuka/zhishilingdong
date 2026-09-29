@@ -1,0 +1,698 @@
+# 版本里程碑
+
+## v1.7.1 (2026-09-29) —— 发布形态正式定为单文件 HTML
+
+> 本版把**发布形态**收敛为一种：一个可以直接双击打开的 HTML。
+> 同时收纳 v1.7.0 之后累计的一批生成链路与历史模块修复。
+
+### 发布形态
+
+- `npm run release` → `release/知识灵动助手.html`（全部 JS / CSS / 字体内联，约 3.2MB）+ `使用说明.txt`
+- **产物不入库**，作为 GitHub Release 附件分发，仓库只留源码
+- 移除云部署（`netlify.toml` / `vercel.json`）与本地静态服务（`server.js` / `start.bat` / `scripts/postbuild.js` / 多文件 `dist/`）
+- 新增 `vite.standalone.config.ts`（构建到 `.tmp-standalone/`）与 `scripts/build-standalone.js`（内联并写入 `release/`）
+- `package.json` version 由 `0.1.0` 更正为 `1.7.1` —— 此前该字段与 versions.md / README 记录的里程碑长期脱节
+
+### 内容修复（v1.7.0 之后累计）
+
+- **中断提示归位内容末尾**：`GenerationNotice` 由标题头之后移到所有内容区块之后；`DocResult`、收藏详情、`SearchContainer` 统一同一口径 —— 提示描述的是"末尾没写完"，位置就该紧接内容尾部
+- **尾部快照兜底**：流结束时最后一次解析失败（例如正好停在半个转义序列上）不再把整段已渲染内容报废成技术性错误横幅，改用 `lastRenderable` 兜底并按内容侧 `incomplete` 归因
+- **历史模块浏览登记重构（m035~m040）**：浏览中状态收归 `HistoryProvider`；存储改为单条键；数据层"磁盘是真相"；30s 心跳把"落盘丢失窗口"限制在一个周期内；登记身份改用用户输入而非模型返回字段
+
+### 验证
+
+- 真实浏览器以 `file://` 打开产物：应用正常挂载、localStorage 可写可回读、Mock 搜索端到端跑通（失败请求 0 / console error 0 / pageerror 0）
+- CORS 对照矩阵（`file://` vs `http://localhost`）：智谱 / 通义 / DeepSeek / Moonshot / 硅基流动两边均放行（HTTP 401 仅因密钥无效）；OpenAI 两边均超时（网络问题，非 CORS）
+- `tsc --noEmit` 零错误；vitest 341 例 / 30 文件全绿
+
+---
+
+## v1.7.0 (2026-09-15) —— 正式发布里程碑
+
+> 本版为**正式发布版**：包含版权声明与 MIT License（`Copyright (c) 2026 ceepuka`），
+> 并完成生成链路的"中断分类 → 全场景续写 → 错误处理"整体治理。
+
+### 完成小目标
+- **版权与合规**：页脚版权声明（署名 GitHub: ceepuka）+ `LICENSE`（MIT）+ README 全量纠错
+- **仓库卫生**：`dist/` 停止被 git 追踪（修复仓库污染），清理可再生临时产物
+- **生成中断分类模型**：明确区分「模型侧（输出上限 / 安全策略）」「链路侧（网络 / 超时 / 协议 / HTTP）」「内容侧（静默截断 / 解析失败）」「用户侧（取消）」
+- **续写覆盖全链路**：不再只有"模型超限"会续写，网络中断/超时/协议错/静默截断一样会接着写
+- **错误处理分层**：生成类调用改为严格模式，异常不再被吞成"成功但空数据"
+- **提示按原因分档**：横幅区分中断原因并标注自动续写次数，搜索与文档模块共用
+
+### 功能清单
+- [x] 新增 `services/streaming/interruption.ts`：`InterruptionKind` / `InterruptionSide` / `GenerationInterruption` / `classifyThrown` / `canContinueAfter` / `kindFromFinishReason` / `interruptionFromCode` / `GenerationInterruptedError`
+- [x] 新增 `StreamNetworkError`（fetch/body 传输层失败）与 `StreamAbortedError`（用户取消），与 `StreamTimeout` / `StreamProtocol` 区分开
+- [x] `callModelStream` / `callModel`：`finishReason` 逐层透出；`fetchOrThrow` 把裸 `TypeError: Failed to fetch` 归类为网络中断
+- [x] `callModelStreamWithContinuation` 重写：中断分类驱动续写；无内容时按原 prompt 重发 1 次；**总请求数硬上限 3**；返回结构化 `interruption`（kind/side/attempts/continued/resolved）
+- [x] 续写提示词不再写死"达到输出长度上限"（措辞改为中性"输出中途被中断"，避免给模型错误上下文）
+- [x] `withFallback` 增加 `strict` 模式：生成类调用（search generate/generateStream/followupStream、doc generate/generateStream）异常一律 `success:false + code`，不再吞成 `success:true` 空结构体
+- [x] HTTP 错误（401/额度/限流/5xx）带 `aiError` 透传，不再静默降级
+- [x] `SearchGenerateResponse` / `DocResult` / `DocumentGenerateResponse` 增 `interruption?` 字段
+- [x] 新增 `components/ui/GenerationNotice.tsx`：按 `side` 配色、按 `kind` 取文案的分档横幅，兼容旧历史数据（只有 `truncated`/`continued` 布尔）
+- [x] i18n：新增按原因分档提示文案 + 8 条错误文案（中英同步，英文作类型基准）
+- [x] 状态机：`toFriendlyError` 覆盖全部中断 code；失败但已有内容时**保留内容并挂上归因**；catch 分支统一走 `classifyThrown`
+- [x] 文档模块：`truncated`/`continued`/`interruption` 全链路接通（此前完全没接，用户只能看到半截正文且零提示）
+- [x] 版权声明与 LICENSE（v1.6.2 之后、本版发布前完成的一批提交）
+- [x] 仓库清理：`git rm -r --cached dist` + 删除可再生临时产物（≈5.9 MB）
+
+### 技术栈
+- Vite 5 + React 18 + TypeScript 5
+- Tailwind CSS 3
+- SSE 流式 + 增量 JSON 解析 + **中断分类驱动续写** + 首字节超时兜底
+- KaTeX（行内公式 + 独立公式）
+
+### 状态
+已完成并通过构建验证
+
+**构建验证（2026-09-15）：**
+- ✅ TypeScript 类型检查通过（`tsc --noEmit` 零错误）
+- ✅ vitest **277/277** 全部通过（**20 文件**；本次净增 47 例：中断分类 19 + 全链路续写与归因 11 + 严格模式 fallback 6 + 分档提示组件 11）
+- ✅ 生产构建成功（`vite build`）
+
+**关键行为契约（写进测试，防回归）：**
+| 场景 | 结果 |
+|---|---|
+| 模型超限 `finish_reason=length` | 续写；归因 `length`（模型侧） |
+| 流到一半网络断开（已收到内容） | **仍然续写**，不再直接终止；归因 `network`（链路侧） |
+| 一个字都没拿到 | 按**原 prompt** 重发 1 次（不空转耗满 3 次），仍失败则抛错 |
+| 用户取消 / 安全策略拦截 / 内容非 JSON | 不自动重试 |
+| 已被续写补全 | 横幅显示"已自动续写并补全" |
+| 未被补全 | 横幅按原因分档 + 标注自动续写次数 |
+
+**新增文件：**
+- `src/services/streaming/interruption.ts`（中断分类模型）
+- `src/components/ui/GenerationNotice.tsx`（分档提示横幅）
+- `src/services/streaming/__tests__/interruption.test.ts`
+- `src/components/ui/__tests__/generationNotice.test.tsx`
+
+**文件变更：**
+- `src/services/baseAIProvider.ts`（`withFallback` 分级 / 续写循环重写 / 传输层分类 / `finishReason` 透出 / 生成类方法接 strict）
+- `src/services/streaming/sseReader.ts`（新增两类异常 + 网络失败归类）
+- `src/modules/search/useSearchStateMachine.ts`（错误映射与部分内容保留）
+- `src/modules/search/SearchResults.tsx`、`src/modules/doc/{index,DocResult}.tsx`（接入分档横幅）
+- `src/i18n/strings/search.ts`、`src/types/{ai,index}.ts`
+
+---
+
+## v0.2.0 (2026-07-02)
+
+### 完成小目标
+- 模块化重构：从单文件HTML升级为 Vite + React + TypeScript
+
+### 功能清单
+- [x] 项目结构模块化（components、modules、hooks、types）
+- [x] 通用组件化（Button、Input、Card、Tag 等UI组件）
+- [x] 知识卡片组件化（6种卡片独立组件：Concept/Process/Formula/Timeline/Compare/Hierarchy）
+- [x] 三个功能模块独立目录（search、translate、doc）—— 注：visual 模块后续弃用，代码已于 2026-09-04 删除
+- [x] TypeScript 类型系统
+- [x] Tailwind CSS 样式方案
+- [x] ECharts + KaTeX 集成（ECharts 后续移除）
+
+### 技术栈
+- Vite 5 + React 18 + TypeScript 5
+- Tailwind CSS 3
+- ECharts 5 + echarts-for-react（2026-09-04 随 visual 模块删除）
+- KaTeX 0.16
+
+### 状态
+已完成并通过测试
+
+**测试结果（2026-07-02）：**
+- ✅ 构建验证：TypeScript 类型检查通过，生产构建成功
+- ✅ 知识搜索模块：6种知识卡片组件正常渲染，热门标签点击正常
+- ✅ 词典翻译模块：语言切换、输入框、翻译功能正常
+- ✅ 文档生成模块：5种文档类型、语气切换、生成功能正常
+- ⚠️ 动态可视化模块：ECharts函数图像、算法动画演示正常（**注**：后续已从主应用移除，PRD 标记为已弃用，代码已于 2026-09-04 删除）
+- ✅ Tab导航切换正常，URL hash同步正确
+
+---
+
+## v0.1.0 (2026-06-29 ~ 2026-07-02)
+
+### 完成小目标
+- m001：整体框架与导航
+- m002：知识搜索模块
+- m003：词典翻译模块
+- m004：文档生成模块
+- ~~m005：数学函数动态图像~~（**已弃用**，代码已于 2026-09-04 删除）
+- ~~m006：算法动画演示~~（**已弃用**，代码已于 2026-09-04 删除）
+
+### 功能清单
+- [x] 顶部导航栏（三个Tab切换）
+- [x] 知识搜索框 + 热门标签
+- [x] 知识卡片渲染（概念、流程、公式、时间轴、对比、层级）
+- [x] 词典翻译（查词模式、查句模式）
+- [x] 文档生成（邮件、报告、会议纪要、PPT、笔记）
+- [x] ~~数学函数图像（ECharts）~~（**已弃用**）
+- [x] ~~算法动画（冒泡排序、选择排序、插入排序）~~（**已弃用**）
+- [x] 配置管理系统
+
+### 技术栈
+- 单文件 HTML + 原生 JavaScript
+- Tailwind CSS (CDN)
+- ECharts + KaTeX (CDN)
+
+### 状态
+已完成（已被 v0.2.0 模块化重构替代；动态可视化相关功能后续从 PRD 移除）
+
+---
+
+## v1.0.0 (2026-07-05)
+
+### 完成小目标
+- m007：追问对话功能
+- m008：收藏功能
+- m009：历史记录功能
+- 智能标签（动态更新）
+- 知识笔记导出（TXT/Markdown）
+- TTS朗读功能
+- 文档复制导出功能
+
+### 功能清单
+- [x] 智能标签功能（根据输入内容实时展示相关标签）
+- [x] 知识笔记导出功能（TXT/Markdown格式）
+- [x] 移除动态可视化模块导航入口（已弃用）
+- [x] 追问对话区
+- [x] 收藏功能（知识卡片/生词/文档）
+- [x] 历史记录功能（搜索/翻译）
+- [x] TTS朗读功能（单词发音、句子原文/译文朗读）
+- [x] 文档复制导出功能
+- [x] ~~知识结构图谱展示（层级结构、分阶段解释）~~（**修正**：实际未完整实现，后续降级为"知识目录"占位组件）
+- [x] ~~阶段切换功能（基础/进阶）~~（**修正**：未实现）
+- [x] ~~概念关联跳转~~（**修正**：未实现）
+
+### 技术栈
+- Vite 5 + React 18 + TypeScript 5
+- Tailwind CSS 3
+- Web Speech API（TTS）
+- LocalStorage（数据持久化）
+
+### 状态
+已完成并通过构建验证（**注**：原 PRD 中"知识结构图谱""阶段切换""概念关联跳转"未实际实现，已在 v2.1 PRD 修正）
+
+**构建验证（2026-07-05）：**
+- ✅ TypeScript 类型检查通过
+- ✅ 生产构建成功（66 modules）
+- ✅ 开发服务器正常运行（http://localhost:3000）
+
+**新增文件：**
+- `src/modules/search/KnowledgeGraph.tsx` - 知识结构图谱组件（**注**：后续重写为 div 层级"知识目录"占位）
+- `src/modules/search/SmartTags.tsx` - 智能标签组件
+- `src/utils/export.ts` - 文件导出工具
+- `src/hooks/useFavorites.ts` - 收藏功能Hook
+- `src/hooks/useHistory.ts` - 历史记录功能Hook
+
+---
+
+## v1.0.1 (2026-07-05)
+
+### 完成小目标
+- 搜索模块布局优化：搜索历史移至左侧侧边栏
+- 关键词标签优化：搜索范围标签（教育阶段、学科领域、知识类型）
+- 知识内容智能生成呈现：思维导图→概念→示例→搜索结果
+
+### 功能清单
+- [x] 搜索历史侧边栏（固定显示、清空功能、时间标签、单条删除）
+- [x] 搜索范围标签（教育阶段/学科领域/知识类型，支持多选、折叠/展开、清空选择）
+- [x] 热门标签（搜索框下方 10 个标签，点击直接搜索）
+- [x] 思维导图组件（可折叠树状结构、层级着色）
+- [x] 概念解析组件（定义、公式、定理、原理四种类型，双色边框卡片）
+- [x] 示例演示组件（步骤编号 + 渐变结论区域）
+- [x] KaTeX 数学公式渲染支持
+- [x] 10 个搜索词生成数据（速度、引擎、牛顿第二定律、人工智能、物理定律、化学反应、数学公式、历史事件、编程算法、生物结构）
+- [x] 侧边栏完全收起/展开（收起 w-0，展开 296px，悬浮按钮恢复）
+- [x] 字体大小优化（text-xs → text-sm）
+- [x] 移除「相关关键词」区域
+- [x] 移除「智能知识搜索」脉冲徽章
+
+### 技术栈
+- Vite 5 + React 18 + TypeScript 5
+- Tailwind CSS 3
+- KaTeX 0.16（数学公式渲染）
+- LocalStorage（搜索历史持久化）
+
+### 状态
+已完成并通过构建验证
+
+**构建验证（2026-07-05）：**
+- ✅ TypeScript 类型检查通过
+- ✅ 生产构建成功（65 modules）
+- ✅ 开发服务器正常运行（http://localhost:3000）
+
+**文件变更：**
+- `src/modules/search/index.tsx` - 重构布局，添加热门标签、单条删除、侧边栏完全收起
+- `src/modules/search/SmartTags.tsx` - 折叠/展开、清空选择、字体优化
+- `src/modules/search/SearchResults.tsx` - 全面优化视觉设计
+- `src/modules/search/mockData.ts` - 新增 6 个搜索词生成数据，添加 category/tags 字段
+- `src/hooks/useHistory.ts` - 暴露 removeHistory 方法
+
+---
+
+## v1.0.2 (2026-07-07 ~ 2026-07-09)
+
+### 完成小目标
+- 模块体验对齐与改进（A系列 + B系列）
+- 历史记录时间自动更新与浏览中标记
+- 问答历史话题化重构
+- 历史模块架构重构：通用 HistorySidebar 组件 + API 统一 + props 传递链消除
+- **收藏与历史记录架构分离：职责清晰 + 完整状态恢复 + 用户友好标签**
+- **全局菜单：主题切换（亮色/深色）、语言切换、设置（清空所有历史）**
+- **疑难问题修复：全局清空历史记录失效、搜索历史追问对话恢复、收藏内容加入历史记录**
+
+### 功能清单
+- [x] 翻译模块「自动检测」语言方向（默认）
+- [x] 翻译历史记录侧边栏（收起/展开、悬浮按钮）
+- [x] 查句结果关联知识卡片 + 导出功能
+- [x] 文档模块历史记录侧边栏
+- [x] 文档模块「重新生成」功能
+- [x] 统一收藏管理视图（四类：knowledge/dictionary/translation/document）
+- [x] 翻译模块词典查词模式（Tab切换、单行输入）
+- [x] 查词/翻译历史记录按模式过滤展示
+- [x] 切换模式时清空结果显示
+- [x] 收藏状态即时同步（useSyncExternalStore）
+- [x] 查词模式关联术语展示
+- [x] 翻译模式关键词 + 语法说明（替代知识卡片）
+- [x] 发音按钮朗读状态反馈
+- [x] 搜索模块问答历史记录
+- [x] 收藏项点击跳转到对应内容
+- [x] 文档生成类型扩充（5种→10种：合同、简历、新闻稿、项目方案、周报）
+- [x] 历史记录时间每分钟自动更新
+- [x] 当前浏览内容「浏览中」标记（历史记录 + 收藏面板）
+- [x] 收藏管理类型折叠功能
+- [x] 问答历史话题化（完整对话会话，区分首次提问/追问）
+- [x] 搜索追问对话会话化（复用QA的session模式，追问追加到同一条记录）
+- [x] 问答模式「新对话」按钮（清空当前会话，创建新话题）
+- [x] 按钮统一样式优化（查词/翻译/生成按钮移入输入框内）
+- [x] 模式切换独立布局（搜索/问答模式切换独立一行）
+- [x] 清空历史按类型隔离（search/qa、translate、doc 各自独立）
+
+### 技术栈
+- Vite 5 + React 18 + TypeScript 5
+- Tailwind CSS 3
+- Web Speech API（TTS）
+- LocalStorage（数据持久化）
+- useSyncExternalStore（跨组件状态共享）
+
+### 状态
+已完成并通过构建验证
+
+**构建验证（2026-07-09）：**
+- ✅ TypeScript 类型检查通过
+- ✅ 生产构建成功（71 modules，新增 ConfirmDialog 组件）
+
+**新增文件：**
+- `src/hooks/useTimeRefresh.ts` - 时间刷新Hook
+- `src/components/favorites/FavoritesPanel.tsx` - 统一收藏管理面板
+- `src/components/history/HistorySidebar.tsx` - 通用历史侧边栏组件（替代 TranslateHistory 和 DocHistory）
+- `src/hooks/useTheme.ts` - 主题切换Hook（系统检测 + localStorage持久化）
+- `src/hooks/useLanguage.ts` - 语言切换Hook（浏览器检测 + localStorage持久化）
+- `src/components/ui/ConfirmDialog.tsx` - 通用确认对话框组件
+
+**删除文件（历史模块重构）：**
+- `src/modules/translate/TranslateHistory.tsx` - 已被通用组件替代
+- `src/modules/doc/DocHistory.tsx` - 已被通用组件替代
+
+---
+
+## v1.1.0 (响应式适配 · 部分完成)
+
+### 完成小目标
+- 响应式适配（移动端布局优化）
+
+### 功能清单
+- [x] 部分组件响应式布局适配
+- [ ] 移动端适配未彻底完成，保留在 [todo.md](todo.md) P0
+
+### 状态
+⚠️ 部分完成
+
+---
+
+## v1.2.0 (2026-07-09)
+
+### 完成小目标
+- AI服务抽象层（接口契约 + Mock实现 + Provider）
+- 搜索状态机（搜索模式内部智能流程管理）
+- 知识目录占位组件（**原"知识图谱导航"**，实际为 div 层级树形结构，非 SVG 知识图谱）
+- 思维导图组件（SVG层级结构图、节点展开/收起）
+- 文档导出增强（txt/md/html三种格式）
+- 收藏空间管理（默认/工作/学习空间）
+- 搜索/QA双模式解耦
+
+### 功能清单
+- [x] AI服务类型定义（AIService接口 + 搜索/翻译/文档类型）
+- [x] Mock AI服务实现（search/translate/document三大模块）
+- [x] AI服务Provider（环境变量切换Mock/真实服务）
+- [x] 搜索状态机Hook（IDLE→VALIDATING→ANALYZING→KNOWLEDGE_GRAPH/GENERATING→DISPLAYING→FOLLOWUP）
+- [x] 知识目录占位组件（div层级树形结构、节点展开/收起、叶子节点点击跳转）—— **修正**：实际非 SVG 知识图谱，是占位实现
+- [x] 思维导图组件（SVG层级结构图、节点展开/收起、连接线动画）
+- [x] 搜索模块重构（状态机驱动、搜索/QA双模式解耦）
+- [x] 文档导出工具（exportTxt、exportMd、exportHtml）
+- [x] 文档结果导出功能（txt/md/html三种格式选择）
+- [x] 收藏空间管理（创建/切换/删除空间、内容分类）
+- [x] AI智能标签（输入前热门标签、输入中实时推荐）
+- [x] 追问对话功能（与AI服务集成、对话历史展示）
+- [x] useSyncExternalStore修复（getSnapshot缓存，避免无限循环）
+
+### 技术栈
+- Vite 5 + React 18 + TypeScript 5
+- Tailwind CSS 3
+- useSyncExternalStore（跨组件状态共享）
+- LocalStorage（数据持久化）
+
+### 状态
+已完成并通过构建验证
+
+**构建验证（2026-07-09）：**
+- ✅ TypeScript 类型检查通过
+- ✅ 生产构建成功（76 modules）
+- ✅ 开发服务器正常运行（http://localhost:3000）
+
+**新增文件：**
+- `src/types/ai.ts` - AI服务类型定义
+- `src/services/mockAIService.ts` - Mock AI服务实现
+- `src/services/aiServiceProvider.ts` - AI服务Provider
+- `src/modules/search/useSearchStateMachine.ts` - 搜索状态机Hook
+- ~~`src/modules/search/MindMap.tsx` - 思维导图组件~~（**注**：后续作为死代码删除，思维导图实际嵌入在 SearchResults.tsx 中）
+
+**文件变更：**
+- `src/types/index.ts` - 导入AI类型定义
+- `src/modules/search/index.tsx` - 重构为状态机驱动，搜索/QA双模式解耦
+- `src/modules/search/KnowledgeGraph.tsx` - 实现知识图谱交互
+- `src/modules/search/SmartTags.tsx` - 实现智能标签
+- `src/modules/search/QASection.tsx` - 实现追问对话与AI服务集成
+- `src/modules/search/mockData.ts` - 迁移到AI服务
+- `src/modules/translate/mockData.ts` - 迁移到AI服务
+- `src/modules/doc/DocResult.tsx` - 添加多格式导出功能
+- `src/modules/doc/templates.ts` - 迁移到AI服务
+- `src/utils/export.ts` - 实现导出工具（txt/md/html）
+- `src/hooks/useFavorites.ts` - 添加收藏空间管理功能
+
+---
+
+## v1.3.0 (已完成)
+
+### 完成小目标
+- 翻译风格切换（学术/商务/日常）
+- PDF格式导出（jspdf，支持中文和分页）
+- 文档生成结果 Markdown 渲染（react-markdown + remark-gfm）
+- 文档类型选择器折叠效果
+- 文档类型扩充 5→10 种（合同、简历、新闻稿、项目方案、周报）
+
+### 功能清单
+- [x] 翻译风格切换（performTranslateWithStyle 重新调用AI生成）
+- [x] PDF格式导出（jspdf，支持中文和分页）
+- [x] 文档生成结果 Markdown 渲染
+- [x] 文档类型选择器折叠/展开效果
+- [x] 文档类型扩充至 10 种（v1.4.0 后续增加 general 通用类型，共 11 种）
+- ~~[x] m010：更多算法动画（快速排序、归并排序）~~（**修正**：实际未实现，算法动画模块已从主应用移除并弃用）
+
+### 状态
+已完成（**注**：原 "m010 算法动画" 实际未实现，已在 v2.1 PRD 修正为已弃用）
+
+---
+
+## v1.4.0 (2026-07-11 ~ 2026-07-14)
+
+### 完成小目标
+- **真实AI服务集成**：接入智谱GLM-4-Flash API，实现全模块真实AI调用
+- **历史记录架构升级**：从useState hook重构为HistoryContext + Context模式
+- **文档生成模块优化**：PDF导出、Markdown渲染、类型选择器折叠
+- **词典翻译体验优化**：移除自动切换、修复翻译风格切换
+- **搜索模块修复**：问答模式布局优化、追问等待提示、知识内容导出简化
+
+### 功能清单
+- [x] 智谱GLM-4-Flash AI服务集成（真实AI调用）
+- [x] 统一AI接口契约（aiServiceProvider抽象层）
+- [x] 翻译模块调用真实AI（查词/翻译）
+- [x] 文档生成模块调用真实AI
+- [x] 直接问答模式调用真实AI
+- [x] 搜索模式AI生成知识内容
+- [x] 加载状态显示 + 错误处理 + mock fallback
+- [x] JSON解析增强（支持Markdown代码块格式）
+- [x] 历史记录从useState hook重构为HistoryContext（Context模式）
+- [x] 搜索/问答模式串扰修复（状态完全隔离）
+- [x] AI搜索结果重复问题修复
+- [x] PDF格式导出（jspdf，支持中文和分页）
+- [x] 文档生成结果Markdown渲染（react-markdown + remark-gfm）
+- [x] 文档类型选择器折叠效果（默认收起，展开显示网格）
+- [x] 文档类型选择器移到输入框下方
+- [x] 通用文档类型（默认选中）
+- [x] 文档模块"浏览中"状态修复（currentTopic替代result.title）
+- [x] 词典翻译移除输入自动检测切换（手动切换模式）
+- [x] 翻译模式风格切换修复（重新调用AI生成）
+- [x] 查词模式AI直接搜索关键词（不自动判断单词/句子）
+- [x] 问答模式布局优化（对话内容和示例问题移到输入框上方）
+- [x] 搜索模式追问等待提示（isLoading传递）
+- [x] 知识内容导出简化为Markdown并添加复制功能
+- [x] 问答模式连续输入防重机制（processingRef）
+- [x] 代码质量优化（删除死代码、提取通用错误处理、统一类型定义）
+
+### 技术栈
+- Vite 5 + React 18 + TypeScript 5
+- Tailwind CSS 3
+- **智谱GLM-4-Flash API**（真实AI服务）
+- **react-markdown + remark-gfm**（Markdown渲染）
+- **jspdf**（PDF生成）
+- React Context（全局状态管理）
+- LocalStorage（数据持久化）
+
+### 状态
+已完成并通过构建验证
+
+**构建验证（2026-07-14）：**
+- ✅ TypeScript 类型检查通过
+- ✅ 生产构建成功（718 modules）
+- ✅ 浏览中状态正常显示
+- ✅ Markdown内容正确渲染
+- ✅ PDF导出功能可用
+- ✅ 翻译风格切换正常
+- ✅ 问答模式布局合理
+
+**新增文件：**
+- `src/services/glmAIService.ts` - 智谱GLM AI服务实现
+- `src/hooks/HistoryContext.tsx` - 全局历史记录上下文（Context模式）
+- `src/modules/doc/DocTypeSelector.tsx` - 文档类型选择器组件（带折叠效果）
+
+**文件变更：**
+- `src/services/aiServiceProvider.ts` - 集成真实AI服务
+- `src/App.tsx` - 使用HistoryProvider包裹应用
+- `src/modules/search/index.tsx` - 使用HistoryContext，修复模式串扰，布局优化
+- `src/modules/translate/index.tsx` - 使用HistoryContext，接入真实AI，修复风格切换
+- `src/modules/doc/index.tsx` - 使用HistoryContext，接入真实AI，修复浏览中状态
+- `src/modules/doc/DocEditor.tsx` - 引入DocTypeSelector，布局调整
+- `src/modules/doc/DocResult.tsx` - 添加Markdown渲染和PDF导出
+- `src/utils/export.ts` - 添加PDF导出功能
+- `src/modules/translate/TranslateInput.tsx` - 移除自动模式切换
+- `package.json` - 新增react-markdown、remark-gfm、jspdf依赖
+
+### 重要变更说明
+1. **历史记录架构升级**：从原useState + key prop的hack方式，升级为标准的React Context模式，解决多实例状态不同步问题
+2. **AI从Mock到真实**：所有模块从mock数据切换为真实AI调用，保留mock作为fallback
+3. **viewingQuery标识一致性**：文档模块使用currentTopic（原始输入）替代result.title，确保"浏览中"状态正确匹配
+4. **翻译体验优化**：移除反直觉的自动模式切换，改为用户手动选择；风格切换重新调用AI生成
+5. **环境变量弃用**：API密钥已改为在应用内通过密钥管理组件配置，存储于LocalStorage，不再使用环境变量硬编码
+
+---
+
+## v1.5.0 (2026-09-06 ~ 2026-09-09)
+
+### 完成小目标
+- **内容生成改真流式**：生产者-消费者模型（`StreamingJSONParser` + `callModelStream`，不支持流式自动降级）
+- **知识内容层次增强**：概念解释包含初等和高等两个层次
+- **知识脉络扩展**：学习路径 / 前置知识 / 关联主题 / 易混辨析 / 常用结论
+- **经典试题**：选择题、填空题、计算题、问答题（题型中英别名归一化）
+- **趣味内容**：故事、应用、历史、趣味小知识
+- **配图双通道**：模型内联 SVG + 图片 URL（Commons/维基双源兜底）
+- **真实 AI 链路修复**：截断透出、LaTeX 渲染、厂商模型 ID/能力 cap、图片兜底
+- **思维导图公式溢出修复**：按字符类分档估宽
+- **自定义厂商模板**：8 套一键预填
+
+### 功能清单
+- [x] 核心概念双层结构（初等/高等）+ conceptsOverview 总述 + 概念示例独立卡片
+- [x] `Concept.keyPoints`（关键要点）/ `pitfalls`（易错提醒）；`KnowledgeContext.confusables`（易混辨析）
+- [x] 新增知识脉络：学习路径（纵向序号）→ 前置/关联 → 易混辨析 → 常用结论
+- [x] 新增经典试题：选择题、填空题、计算题、问答题 + 难度 + 答案解析 + 来源标注
+- [x] 新增趣味内容：故事、应用、历史、趣味小知识
+- [x] 内容生成改真流式 `generateStream`（替换早期 3 步 `generatePartial`，旧路径已删除）
+- [x] 快照合并 `mergeSnapshot`（仅非空覆盖，防增量回退闪回）
+- [x] 截断透出 `truncated`（sseReader → 服务 → 状态机 → UI 警告横幅）
+- [x] LaTeX 归一化 + 安全渲染（`utils/latex.ts`，失败降级等宽代码块）
+- [x] 厂商模型 ID/能力 cap 重排 + `max_tokens` 收敛（防超上限 400）
+- [x] 配图 `svg` 内联 + `image` 双通道；Commons/维基双源自动兜底（删除中英词表做法）
+- [x] 试题题型适配重写（`sanitizeExamQuestions`）+ `ExamQuestionCard`
+- [x] 思维导图公式溢出修复（`estimateTextWidthEm`）
+- [x] 自定义厂商模板（`providerTemplates.ts`，8 套）
+- [x] 更新 AI 提示词：结构化 JSON 输出（conceptsOverview/双层内容/conceptExamples/keyPoints/pitfalls/imageQuery）
+- [x] 更新 Mock 数据：22 主题 concepts 全量双层化 + 总述 + 概念示例
+
+### 技术栈
+- Vite 5 + React 18 + TypeScript 5
+- Tailwind CSS 3
+- 多厂商 AI（智谱/通义/DeepSeek/Moonshot/OpenAI/Anthropic/Gemini/SiliconFlow，OpenAI 兼容协议）
+- SSE 流式 + 增量 JSON 解析
+
+### 状态
+已完成并通过构建验证
+
+**构建验证（2026-09-09）：**
+- ✅ TypeScript 类型检查通过
+- ✅ vitest 142/142 通过
+- ✅ 生产构建成功（740 modules）
+
+---
+
+## v1.6.2 (2026-09-12)
+
+### 完成小目标
+- **流式链路诚实化**：移除"黑名单-自愈"隐式全局状态，改为拿到什么链路状态就诚实处理什么（链路失败抛错透传、不再降级重发）
+- **首字节超时兜底**：60s 内未收到任何字节自动 abort，修「已等待 511 秒」卡死
+- **链路错误透传**：`withFallback` 不再把超时/协议错误吞成笼统"生成失败"，透传 code 由 UI 显示具体原因
+- **续写边界加固 + 判定同源化**：续写判定复用解析层权威判定，新增核心字段齐全判定，续写轮空内容/异常不空转、不丢尾巴
+- **空结果兜底**：无内容时给明确的失败空状态卡片，不再是一片空白
+- **多厂商思考适配**：智谱 GLM 关闭思考（修「总是生成失败」）+ 智谱/千问 `reasoning` 能力声明修正
+- **AI 内容质量**：防编造答案/瞎猜（严谨性铁律）+ 含"如图"试题约束 + SVG 正向画法教学 + 图源积极引用
+
+### 功能清单
+- [x] 流式：`sseReader` 新增 `firstByteTimeoutMs`（默认 60s）+ `StreamTimeoutError`；收到任意字节即 `clearTimeout`
+- [x] 流式：删除 `streamUnsupported` Map / `markStream*` / `isStreamPossiblySupported` / `STREAM_RETRY_COOLDOWN_MS` 一整套运行时黑名单；`wantStream` 只信 `caps.streaming`
+- [x] 流式：`callModelStream` 传输层/协议/超时失败一律抛错（不降级重发）；删除 `RequestMeta.caps` 死字段
+- [x] 流式：`withFallback` 识别 `StreamTimeoutError`/`StreamProtocolError` 透传为 `success:false + code(STREAM_TIMEOUT/STREAM_PROTOCOL)`
+- [x] 状态机：`toFriendlyError` 错误码映射；`hasUsableContent` 覆盖全部实质字段；全空显式写 `error`；`IDLE` 分支补 `thinking:false`
+- [x] UI：`SearchContainer` 失败空状态卡片；`WaitTimer` ≥30s 加重提示（`waitingSlow`）
+- [x] i18n：`waitingSlow` / `errors.firstByteTimeout` / `errors.generateFailedEmpty`（中英同步）
+- [x] 续写：`hasCompleteJSONObject` 复用 `isCompleteJSON`（消除双写）；新增 `buildGenerateCompleteChecker`（括号闭合 + 核心字段齐全）
+- [x] 续写：续写轮空内容即 break；续写轮异常 catch 保留已累积内容（首轮异常仍上抛）
+- [x] 解析：`partialJSON` 导出 `scan` + 新增 `isCompleteJSON` / `analyzeJSON`（权威完整性/字段判定）
+- [x] 厂商：`THINKING_PARAM_PROVIDERS` → `DISABLE_THINKING_PARAMS`，按厂商分派关闭思考（zhipu `thinking:{type:'disabled'}`；dashscope/siliconflow `enable_thinking:false`）
+- [x] 厂商：智谱 `glm-5.2/5.1/4.7/4.7-flash` 与千问 DashScope Qwen3 全系列 `capabilities.reasoning` → `true`
+- [x] prompt：【严谨性铁律】（答案可验证/解析自洽/禁自我怀疑措辞/绝不编造）+【含"如图"的试题约束】+ `imageData` 说明强化
+- [x] prompt：SVG 规则重写为**按学科的正向画法教学**（通用骨架 + 几何/函数/电路/受力/光学）；`image` 字段改为"可信图源直链，优先于手绘 SVG"
+
+### 技术栈
+- Vite 5 + React 18 + TypeScript 5
+- Tailwind CSS 3
+- SSE 流式 + 增量 JSON 解析 + 超限自动续写 + 首字节超时兜底
+- KaTeX（行内公式 + 独立公式）
+
+### 状态
+已完成并通过构建验证
+
+**构建验证（2026-09-12）：**
+- ✅ TypeScript 类型检查通过（`tsc --noEmit` 零错误）
+- ✅ vitest **210/210** 全部通过（**17 文件**；本次净增 31 例：首字节超时 4 + 链路错误透传 5 + 续写边界 10 + 解析判定 3 + 状态机空结果 3 + 关闭思考分派 5 + 提示词契约 2，并重写/更新既有断言）
+
+**新增文件：**
+- `src/services/streaming/__tests__/sseReaderTimeout.test.ts`（首字节超时契约）
+- `src/services/__tests__/disableThinking.test.ts`（关闭思考参数按厂商分派契约）
+- `src/services/__tests__/streamFallback.test.ts`（由"黑名单冷却契约"重写为"链路错误透传契约"）
+
+---
+
+## v1.6.1 (2026-09-11)
+
+### 完成小目标
+- **预置型号全量修正**：逐家核对官方模型目录，替换已下架/改名的型号
+- **生图服务配置入口**：设置面板可配通义万相密钥
+- **行内公式渲染**：正文里的 `$...$` 交给 KaTeX，不再原样露出源码
+- **SVG 图示体验**：等比缩放不裁剪 + 线宽过粗自动压细
+- **流式首字延迟治理**：清洗节流 + 思维链识别 + 首字等待计时 + 关闭思考模式
+- **流式时序修复**：`completedKeys` 补记容器型字段（步骤指示不再卡死）+ 总述与概念列表门控解耦
+- **流式能力黑名单治理**：由"永久禁用"改为 60s 冷却（自愈可达）+ 降级可观测 + 记账收敛到协议层证据
+- **AI 内容质量治理**：公式统一渲染（双保险）+ 试题配图原图优先 + 学科制图规范
+
+### 功能清单
+- [x] 智谱 → `glm-5.2`/`glm-5.1`/`glm-4.7`/`glm-4.7-flash`（原 `glm-4-plus`/`glm-z1-air`/`glm-4-long` 已失效）
+- [x] Gemini → `gemini-3.5-flash`/`3.5-flash-lite`/`3.7-flash`（2.5 系列 2026-10-20 退役）
+- [x] OpenAI → 移除 `gpt-4.1-mini`/`o3-mini`，补 `gpt-5-nano`
+- [x] 千问 → 补 `qwen3.7-max`/`qwen3.8-flash`，移除 `qwen-plus` 别名
+- [x] Anthropic → `claude-opus-5` 提为 recommended
+- [x] 新增 `WanxKeyInput`，接入 Header「密钥管理」Tab；i18n 增加 `wanx` 段
+- [x] 新增 `components/ui/LatexText.tsx`，覆盖 10 处正文渲染点
+- [x] SVG：`--svg-figure-max-h` 等比缩放 + `clampStrokeWidth`（>2 压到 2）+ prompt 画布/线宽要求
+- [x] 流式：`generateStream` 清洗按 80ms 时间片产出 + `parser.finish()` 尾部补发
+- [x] 流式：`sseReader` 识别 `reasoning_content` + `onReasoning` 透传 + `receivedReasoning` 防误降级
+- [x] 流式：状态机 `thinking`/`generateStartedAt` + UI 首字等待秒数
+- [x] 流式：白名单厂商发 `enable_thinking: false`（dashscope/siliconflow）降低首字延迟
+- [x] 流式时序：`StreamingJSONParser.scan()` 容器弹栈后补记顶层字段完成（`completedKeys` 不再漏数组/对象型字段）
+- [x] 流式时序：`SearchResults` 总述（`conceptsOverview`）与概念列表（`concepts`）门控解耦，总述到达即渲染
+- [x] 流式降级：能力黑名单 `Set`(永久禁用) → `Map<key, failedAt>` + `STREAM_RETRY_COOLDOWN_MS=60s` 冷却
+- [x] 流式降级：走非流式分支/记录黑名单均 `console.warn`；仅协议层证据记账（`receivedReasoning` 不记账）
+- [x] 顺手修复：`prepareRequest` 能力画像改用解析后的实际 model id
+- [x] 公式统一渲染：`utils/latex.ts` 新增 `splitBareLatex()`（强信号 + KaTeX 解析失败回退）；`LatexText` 重构为统一入口
+- [x] 公式覆盖：把 keyPoints / pitfalls / learningPath / confusables / mindMap 节点标题·描述 / 趣事标题 / 标签 chip 全部接入 `LatexText`
+- [x] 试题配图三通道：`ExamQuestion.imageData`（base64 直填，<4MB）；渲染优先级 image / imageData > svg，加载失败回退 SVG
+- [x] 严格图源白名单：prompt 显式写入 upload.wikimedia.org / commons.wikimedia.org / cdn.kastatic.org / images.unsplash.com / raw.githubusercontent.com / lh*.googleusercontent.com / cdn.jsdelivr.net / ocw.mit.edu / math.mit.edu
+- [x] 学科制图规范：SVG 规则新增"必须严格遵循该学科制图惯例"+ 高风险学科细则（数学几何对边 a/b/c、物理受力箭头·法线·标准元件、化学键角）
+- [x] prompt 源头加固【公式书写规则】：置顶"凡数学符号一律 `$...$` 包裹"+ 正反例
+
+### 技术栈
+- Vite 5 + React 18 + TypeScript 5
+- Tailwind CSS 3
+- SSE 流式 + 增量 JSON 解析 + 自动续写 + 思维链识别
+- KaTeX（行内公式 + 独立公式）
+
+### 状态
+已完成并通过构建验证
+
+**构建验证（2026-09-11）：**
+- ✅ TypeScript 类型检查通过（`tsc --noEmit` 零错误）
+- ✅ vitest **185/185** 全部通过（**15 文件**；本次新增 **29 例**：公式统一渲染 +9、LatexText 组件 +7、searchResultsLatex +4、exam imageData +4、提示词契约 +5）
+- ✅ 开发服务器热更新验证
+
+**新增文件：**
+- `src/components/ui/LatexText.tsx`（行内公式渲染；本次重构为统一入口）
+- `src/components/ui/__tests__/latexText.test.tsx`（LatexText 组件回归）
+- `src/components/settings/WanxKeyInput.tsx`（生图服务密钥输入）
+- `src/modules/search/__tests__/searchResultsStreaming.test.tsx`（流式渲染时序回归）
+- `src/modules/search/__tests__/searchResultsLatex.test.tsx`（公式渲染覆盖回归）
+- `src/services/__tests__/streamFallback.test.ts`（流式能力黑名单冷却契约）
+- `scripts/build-manifest.js`（`.manifest.json` 一键重建）
+
+---
+
+## v1.6.0 (2026-09-10)
+
+### 完成小目标
+- **多语言（i18n）字符串层**：英文作类型基准，UI 全量迁移，中文漏 key 立即 tsc 报错
+- **用户语言绑定**：AI 输出语言跟随用户语言（`buildLanguageDirective`），JSON 字段名/枚举值保持英文
+- **生成超限自动续写**：严格闭合判定 + 最多 3 次尝试
+- **查词/翻译改造**：源/目标双下拉、逐段对齐、短语多词支持、输入上限计数
+
+### 功能清单
+- [x] `src/i18n/strings/` 按 area 拆文件（common/settings/search/translate/misc/aiProviderTexts/docTemplates）
+- [x] 英文作类型基准（`xxxEn` → `typeof` 派生 → `xxxZh: XxxStrings`），运行时 `deepMerge(EN, {...Zh})` 缺 key 回退英文
+- [x] 取值入口 `useStrings()`（React）/ `getCurrentStrings()`（非 React）+ 占位符 `fmt()`
+- [x] `src/i18n/languages.ts` 语言目录 + `normalizeLanguage` 兼容旧格式
+- [x] `useLanguageStore` 纯存储层 + `useLanguage` 改 `useSyncExternalStore`，Header 语言区改下拉
+- [x] AI 输出绑定用户语言（search 生成/追问/文档 system prompt）
+- [x] 超限自动续写 `callModelStreamWithContinuation`（首轮 1 次 + 续写 ≤2 次）
+- [x] `hasCompleteJSONObject` 严格闭合判定（不修复，避免漏续写）
+- [x] 续写提示 `continued` + SearchResults"已自动续写并补全"提示
+- [x] `detect` 只检测源语言；`queryWord` 支持短语多词（≤10 关键词）；`queryTranslate` 逐段对齐
+- [x] `TranslateInput` 源/目标双下拉 + 交换按钮 + 输入上限（查词 120 / 翻译 3000）
+- [x] `SentenceResult` 选词实时映射（hover 优先于 pinned），对齐不完整追加剩余文本
+- [x] 顺手修复两个真实 bug：具体错误被通用文案覆盖、全空结果被误判为有内容
+- [x] 数据层文本不迁 i18n（厂商名/模型描述/文档模板正文由覆盖层提供）
+
+### 技术栈
+- Vite 5 + React 18 + TypeScript 5
+- Tailwind CSS 3
+- useSyncExternalStore（语言/主题/收藏/配置 store）
+- SSE 流式 + 增量 JSON 解析 + 自动续写
+
+### 状态
+已完成并通过构建验证
+
+**构建验证（2026-09-10）：**
+- ✅ TypeScript 类型检查通过（`tsc --noEmit` 零错误）
+- ✅ vitest 142/142 全部通过
+- ✅ 生产构建成功（740 modules transformed）
+
+**新增文件：**
+- `src/i18n/strings/{common,settings,search,translate,misc,aiProviderTexts,docTemplates,index}.ts`
+- `src/i18n/languages.ts`、`src/hooks/useStrings.ts`、`src/hooks/useLanguageStore.ts`
+
+**删除文件：**
+- `src/utils/imageQuery.ts`（及测试，中英词表被判定为坏做法）
