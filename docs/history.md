@@ -67,9 +67,14 @@
 - commit `5aecfdc` → `main`；tag `v1.7.2` → Release `https://github.com/ceepuka/zhishilingdong/releases/tag/v1.7.2`
 - 附件 `zhishilingdong-v1.7.2.html`（3,365,679 字节）/ `usage-v1.7.2.txt`，中文名放 `label`
 - **匿名（不带 token）走 `api.github.com` 的 asset 端点复验**：两个附件均 200，HTML 实际字节 3,365,679、首字节 `<!DOCTYPE html>`，附件名未被静默改名
-- ⚠️ 本次踩到一个新坑：`git push` **卡在 credential helper 上**（`git-credential-wincred.exe` 经沙箱 shim 调用后不再返回，推送挂 17 分钟零输出、日志 0 字节）。
-  绕法：直接用 helper 二进制取 token（`git-credential-wincred.exe get` 喂协议输入），再 `git -c http.extraheader="AUTHORIZATION: basic <base64>"` 推送 —— 同样的网络与凭据，10 秒完成。
-  **判据**：`git ls-remote` 用同样方式瞬间返回，说明卡的不是网络也不是认证，而是 helper 进程本身
+- ⚠️ 发布过程中 `git push` 挂住过两次。**原因未定论，别当成"credential helper 坏了"**（此处是修正后的表述，见下）：
+  - 第一次：前台尝试 120s 被超时 SIGTERM，后台重试挂 17 分钟、日志 0 字节。
+    **最可能的原因是凭据授权未确认 / 超时**（用户复核后指出；事后用默认凭据通道跑 `git ls-remote` 秒回，说明凭据与网络都正常）。
+  - 第二次：代理对 `github.com:443` 连续返回 502 —— 这一条是直接观测（裸 `CONNECT` 测同样 502，而 `api.github.com:443` / `github.com:22` 返回 200），
+    但**只代表当时的代理状态**，不代表稳定规律。
+  - 当时分别用 token + `http.extraheader`、Git Data API 两条绕路把版本推了上去（`5aecfdc` / `189ceaa`）。
+    **这些绕路是"当时能通"，不是"以后必须这么走"** —— 下一次遇到先做最省事的判断：`git ls-remote` 能否秒回；能回就说明凭据与网络都正常，直接重试 `git push` 即可。
+  - 事后收尾：`git fetch origin && git reset --hard origin/main` 已把本地与远端对齐（两者 tree 相同，只是 commit sha 不同）
 
 ### 关联文档
 - 更新 `docs/versions.md` / `docs/progress.md` / `docs/todo.md` / `docs/worklog.md` / README
