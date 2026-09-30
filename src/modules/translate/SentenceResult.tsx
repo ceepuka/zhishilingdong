@@ -9,7 +9,13 @@ import { useSpeechSynthesis } from '../../hooks/useSpeechSynthesis';
 import { languageLabel, languageSpeech } from '../../i18n/languages';
 import { useStrings } from '../../hooks/useStrings';
 import type { Strings } from '../../i18n/strings';
-
+import {
+  buildRuns,
+  collectRanges,
+  sharedKeys,
+  type RenderRun,
+  type TranslateSegmentPair,
+} from './alignment';
 interface SentenceResultProps {
   result: SentenceResultType;
   onStyleChange: (style: TranslateStyle) => void;
@@ -31,30 +37,46 @@ export function SentenceResult({ result, onStyleChange }: SentenceResultProps) {
   const [speaking, setSpeaking] = useState<'original' | 'translation' | null>(null);
   const { speak, isSpeaking } = useSpeechSynthesis();
 
-  // 选词映射：pinned 为点击锁定，hovered 为悬停；hovered 优先
-  const [pinnedIndex, setPinnedIndex] = useState<number | null>(null);
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const activeIndex = hoveredIndex ?? pinnedIndex;
+  // 选词映射：pinned 为点击锁定，hovered 为悬停；hovered 优先。
+  // 状态按 **key**（AI 填的对照编号）索引 —— 不是数组下标，也不是字符位置。
+  const [pinnedKey, setPinnedKey] = useState<number | null>(null);
+  const [hoveredKey, setHoveredKey] = useState<number | null>(null);
+  const activeKey = hoveredKey ?? pinnedKey;
 
-  const segments = useMemo(() => {
-    const raw = result.segments;
-    if (!Array.isArray(raw)) return [];
-    return raw
-      .map((s) => ({ source: String(s?.source ?? ''), target: String(s?.target ?? '') }))
-      .filter((s) => s.source.length > 0 || s.target.length > 0);
+  /** AI 给的对照项（含 key）。缺 key 的条目会在 collectRanges 里被当"无键"跳过。 */
+  const pairs = useMemo<TranslateSegmentPair[]>(() => {
+    const raw = Array.isArray(result.segments) ? result.segments : [];
+    return raw.map((s) => ({
+      key: (s as { key?: number })?.key,
+      source: String(s?.source ?? ''),
+      target: String(s?.target ?? ''),
+    }));
   }, [result.segments]);
 
-  const hasMapping = segments.length > 1;
+  /**
+   * 两侧渲染都**只从 `original` / `translation` 切区间**，绝不拼接 `segments`：
+   * `Good morning → 早上好` 这种语序相反的情况下，按 segments 的顺序拼译文会得到
+   * 「好早上」。key 只决定"哪里能高亮"，永远不决定"文字是什么"—— 见 alignment.ts。
+   */
+  const { sourceRuns, targetRuns, hasMapping } = useMemo(() => {
+    const sourceRanges = collectRanges(result.original, pairs, 'source');
+    const targetRanges = collectRanges(result.translation, pairs, 'target');
+    const highlightable = sharedKeys(sourceRanges, targetRanges);
 
-  // 若对齐段落未完整覆盖原文/译文，追加剩余部分，保证不丢字
-  const sourceJoined = segments.map((s) => s.source).join('');
-  const targetJoined = segments.map((s) => s.target).join('');
-  const sourceLeftover = hasMapping && result.original.startsWith(sourceJoined)
-    ? result.original.slice(sourceJoined.length)
-    : '';
-  const targetLeftover = hasMapping && result.translation.startsWith(targetJoined)
-    ? result.translation.slice(targetJoined.length)
-    : '';
+    if (highlightable.size === 0) {
+      return {
+        sourceRuns: [{ text: result.original, key: null }] as RenderRun[],
+        targetRuns: [{ text: result.translation, key: null }] as RenderRun[],
+        hasMapping: false,
+      };
+    }
+
+    return {
+      sourceRuns: buildRuns(result.original, sourceRanges, highlightable),
+      targetRuns: buildRuns(result.translation, targetRanges, highlightable),
+      hasMapping: true,
+    };
+  }, [result.original, result.translation, pairs]);
 
   const srcLang = result.sourceLang ? languageLabel(result.sourceLang) : s.translate.original;
   const tgtLang = result.targetLang ? languageLabel(result.targetLang) : s.translate.translated;
@@ -98,19 +120,48 @@ export function SentenceResult({ result, onStyleChange }: SentenceResultProps) {
     }
   };
 
-  /** 用户在原文里划选一段文字 → 定位到对应译文段落 */
+  /** 用户在原文里划选一段文字 → 高亮同 key 的译文片段 */
   const handleSourceMouseUp = () => {
     if (!hasMapping) return;
-    const sel = window.getSelection?.()?.toString().trim();
-    if (!sel) return;
-    const idx = segments.findIndex((s) => s.source.includes(sel));
-    if (idx >= 0) setPinnedIndex(idx);
+    const sel = window.getSelection?.();
+    if (!sel || sel.isCollapsed) return;
+    if (!sel.toString().trim()) return;
+
+    // 直接读选区起点所在片段的 data-key：同一段文字在原文里出现多次时，
+    // 靠文本搜索只会命中第一处，划选第二处会高亮到错误的位置。
+    const anchor = sel.anchorNode;
+    const el = (anchor instanceof Element ? anchor : anchor?.parentElement) as Element | null;
+    const fromDom = (el?.closest?.('[data-key]') as HTMLElement | null)?.dataset?.key;
+    const key = fromDom === undefined ? NaN : Number(fromDom);
+    if (Number.isInteger(key) && key > 0) setPinnedKey(key);
   };
 
   const highlightClass = (active: boolean) =>
     active
       ? 'bg-teal-100 dark:bg-teal-500/25 text-teal-900 dark:text-teal-100 rounded px-0.5 transition-colors'
       : 'transition-colors';
+
+  /**
+   * 把切好的 run 序列渲染成 span。`key === null` 的 run 是"无键文字"：
+   * 不可交互、无高亮，但照样原样显示 —— 对不上照只能是"不高亮"，不能是"不显示"。
+   */
+  const renderRuns = (runs: RenderRun[]) =>
+    runs.map((run, i) => {
+      const key = run.key;
+      if (key === null) return <span key={i}>{run.text}</span>;
+      return (
+        <span
+          key={i}
+          data-key={key}
+          onMouseEnter={() => setHoveredKey(key)}
+          onMouseLeave={() => setHoveredKey(null)}
+          onClick={() => setPinnedKey((p) => (p === key ? null : key))}
+          className={`cursor-pointer ${highlightClass(activeKey === key)}`}
+        >
+          {run.text}
+        </span>
+      );
+    });
 
   return (
     <Card className="animate-slide-up">
@@ -175,26 +226,10 @@ export function SentenceResult({ result, onStyleChange }: SentenceResultProps) {
           </div>
           <div
             className="bg-slate-50 dark:bg-zinc-950 rounded-xl p-4 text-slate-700 dark:text-zinc-200 min-h-[120px] leading-relaxed"
+            data-testid="translate-source-text"
             onMouseUp={handleSourceMouseUp}
           >
-            {hasMapping ? (
-              <>
-                {segments.map((seg, i) => (
-                  <span
-                    key={i}
-                    onMouseEnter={() => setHoveredIndex(i)}
-                    onMouseLeave={() => setHoveredIndex(null)}
-                    onClick={() => setPinnedIndex((p) => (p === i ? null : i))}
-                    className={`cursor-pointer ${highlightClass(activeIndex === i)}`}
-                  >
-                    {seg.source}
-                  </span>
-                ))}
-                {sourceLeftover}
-              </>
-            ) : (
-              result.original
-            )}
+            {renderRuns(sourceRuns)}
           </div>
         </div>
         <div>
@@ -211,25 +246,11 @@ export function SentenceResult({ result, onStyleChange }: SentenceResultProps) {
               </svg>
             </button>
           </div>
-          <div className="bg-teal-50 dark:bg-teal-500/10 rounded-xl p-4 text-slate-700 dark:text-zinc-200 min-h-[120px] leading-relaxed">
-            {hasMapping ? (
-              <>
-                {segments.map((seg, i) => (
-                  <span
-                    key={i}
-                    onMouseEnter={() => setHoveredIndex(i)}
-                    onMouseLeave={() => setHoveredIndex(null)}
-                    onClick={() => setPinnedIndex((p) => (p === i ? null : i))}
-                    className={`cursor-pointer ${highlightClass(activeIndex === i)}`}
-                  >
-                    {seg.target}
-                  </span>
-                ))}
-                {targetLeftover}
-              </>
-            ) : (
-              result.translation
-            )}
+          <div
+            className="bg-teal-50 dark:bg-teal-500/10 rounded-xl p-4 text-slate-700 dark:text-zinc-200 min-h-[120px] leading-relaxed"
+            data-testid="translate-target-text"
+          >
+            {renderRuns(targetRuns)}
           </div>
         </div>
       </div>

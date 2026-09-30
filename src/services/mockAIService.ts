@@ -558,11 +558,14 @@ export const mockAIService: AIService = {
 
       const translateStyle = (style as 'academic' | 'business' | 'casual') || 'casual';
 
-      // 逐段对齐（演示用）：按空白切分，逐块配对，便于验证选词映射交互
+      // 对照表（演示用）：按空白切块，逐块配一个 key（从 1 起）。
+      // 配不上对（译文块不够）的原文块**不放进数组** —— 界面上就是"无键"，不高亮。
       const srcParts = text.split(/(\s+)/).filter((s) => s.length > 0);
       const tgtParts = translation.split(/(\s+)/).filter((s) => s.length > 0);
-      const segments = srcParts.map((s, i) => ({ source: s, target: tgtParts[i] ?? '' }));
-      if (segments.length === 0) segments.push({ source: text, target: translation });
+      const segments = srcParts
+        .slice(0, tgtParts.length)
+        .map((source, i) => ({ key: i + 1, source, target: tgtParts[i] }))
+        .filter((seg) => seg.target.length > 0);
 
       return {
         success: true,

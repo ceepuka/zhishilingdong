@@ -171,8 +171,8 @@ export interface SentenceResult {
   sourceLang?: string;
   /** 目标语言 code（如 zh） */
   targetLang?: string;
-  /** 原文↔译文逐段对齐，用于"选词标记的实时映射" */
-  segments?: { source: string; target: string }[];
+  /** 原文↔译文对照项（key 由 AI 按原文顺序填写），用于"选词标记的实时映射" */
+  segments?: { key?: number; source: string; target: string }[];
   relatedTerms?: string[];
   keywords?: string[];
   grammarNotes?: string[];

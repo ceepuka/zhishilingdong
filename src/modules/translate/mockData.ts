@@ -1233,11 +1233,14 @@ export const mockSentenceResult: (text: string, style: string) => SentenceResult
   const trimmedText = text.trim();
   const translation = translations[trimmedText] || stylePrefix + `这是"${text}"的示例翻译。AI翻译引擎可以准确地将多种语言互相转换，保持原文的语义和语气。`;
 
-  // 逐段对齐（演示用）：按空白切分并逐块配对，便于验证"选词映射"交互
+  // 对照表（演示用）：按空白切块，逐块配一个 key（从 1 起）。
+  // 配不上对（译文块不够）的原文块**不放进数组** —— 界面上就是"无键"，不高亮。
   const srcParts = text.split(/(\s+)/).filter((s) => s.length > 0);
   const tgtParts = translation.split(/(\s+)/).filter((s) => s.length > 0);
-  const segments = srcParts.map((s, i) => ({ source: s, target: tgtParts[i] ?? '' }));
-  if (segments.length === 0) segments.push({ source: text, target: translation });
+  const segments = srcParts
+    .slice(0, tgtParts.length)
+    .map((source, i) => ({ key: i + 1, source, target: tgtParts[i] }))
+    .filter((seg) => seg.target.length > 0);
 
   return {
     original: text,

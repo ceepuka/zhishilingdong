@@ -26,11 +26,20 @@ describe('查词/翻译服务（新契约）', () => {
     expect(res.data?.keywords ?? []).toHaveLength(0);
   });
 
-  it('翻译返回逐段对齐的 segments，且覆盖原文', async () => {
+  it('翻译返回带 key 的对照项，两侧片段都能在原串 / 译串里找到', async () => {
     const res = await mockAIService.translate.queryTranslate('Hello world', 'en', 'zh', 'casual');
     const segs = res.data?.segments ?? [];
+    const original = res.data?.original ?? '';
+    const translation = res.data?.translation ?? '';
+
     expect(segs.length).toBeGreaterThan(0);
-    expect(segs.map((s: { source: string }) => s.source).join('')).toBe('Hello world');
+    for (const seg of segs) {
+      // key 从 1 起的正整数 —— 前端完全靠它配对，所以必须存在且可用
+      expect(Number.isInteger(seg.key) && (seg.key as number) > 0).toBe(true);
+      // 两侧片段都是各自原串的子串，前端才能定位出高亮区间
+      expect(original.includes(seg.source)).toBe(true);
+      expect(translation.includes(seg.target)).toBe(true);
+    }
     expect(res.data?.sourceLang).toBe('en');
     expect(res.data?.targetLang).toBe('zh');
   });

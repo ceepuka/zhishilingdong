@@ -157,11 +157,19 @@ export interface TranslateDetectResponse {
   confidence: number;
 }
 
-/** 译文与原文的逐段对齐（用于"选词标记的实时映射"） */
+/**
+ * 译文对照项（用于"选词标记的实时映射"）。
+ *
+ * `key` 是 AI 按**原文出现顺序**填的对照编号（1、2、3…），同一组对照两侧同键。
+ * 它是唯一的配对依据 —— 不同语言语序可以相反（Good morning → 早上好，
+ * Good 对应译文末尾的「好」），按下标或字符位置配对都会错。
+ * 不便于对照的片段 AI 就不放进数组（= 无键，界面上不高亮）。
+ */
 export interface TranslationSegment {
-  /** 原文片段 */
+  key?: number;
+  /** 原文片段（词 / 词组 / 短语） */
   source: string;
-  /** 与 source 对应的译文片段 */
+  /** 与 source 同键的译文片段 */
   target: string;
 }
 

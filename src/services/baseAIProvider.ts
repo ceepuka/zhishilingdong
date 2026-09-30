@@ -284,6 +284,12 @@ export function sanitizeGraphData(raw: any): KnowledgeGraphNode[] {
 
 const asStr = (v: any): string => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '');
 
+/** 对照键：只认 > 0 的整数，其余（缺失 / 0 / 字符串数字之外）一律 0 = 无键 */
+const asKey = (v: any): number => {
+  const n = typeof v === 'number' ? v : parseInt(String(v ?? ''), 10);
+  return Number.isInteger(n) && n > 0 ? n : 0;
+};
+
 /**
 /**
  * 图片 URL 校验（**严格白名单**）。
@@ -2176,19 +2182,24 @@ ${text}
 - style: "academic" | "business" | "casual"
 - sourceLang: "${srcCode}"
 - targetLang: "${tgtCode}"
-- segments: 逐段对齐数组，**这是重点**。请把原文切分为若干连续片段，并给出每段对应的译文片段，格式 [{"source":"原文片段","target":"译文片段"}]。
-  要求：segments 中所有 source 按顺序拼接应等于 original；切分粒度尽量细（词组/短句级），以便读者点击原文词语时能定位到译文对应部分。
+- segments: **原文↔译文的对照表，这是重点**。把原文切成若干"词 / 词组 / 短语"块，逐块给出对应译文，并给每一块填一个 key：
+  · key 从 1 开始，按该块**在原文中出现的先后顺序**依次编号（1、2、3…）；同一组对照的 source 与 target 用同一个 key；
+  · source 必须是原文里的**原样子串**（该带空格、标点就带上），target 是它对应的译文片段；
+  · 不同语言的语序可以完全相反，译文的先后顺序**不需要与原文一致**。例如 Good morning → 早上好，应给 key1 = Good/好、key2 = morning/早上（key1 的译文反而排在 key2 后面）——**不要为了顺序好看改写译文**；
+  · 粒度要细到词 / 词组 / 短语，通常 3-20 块，**不要整句一块**，否则高亮失去意义；
+  · 不便于对照的虚词、标点**不要放进来**（界面上表现为不高亮，属正常）。
 - relatedTerms: 3-5 个关联术语（用${tgt}）
 - keywords: 3-6 个关键词
 - grammarNotes: 2-3 条语法或选词说明（用${tgt}）
 
-示例：{"original":"Hello world","translation":"你好，世界","style":"casual","sourceLang":"en","targetLang":"zh","segments":[{"source":"Hello","target":"你好"},{"source":" world","target":"，世界"}],"relatedTerms":["greeting"],"keywords":["hello","world"],"grammarNotes":["问候语气"]}`;
+示例：{"original":"Good morning","translation":"早上好","style":"casual","sourceLang":"en","targetLang":"zh","segments":[{"key":1,"source":"Good","target":"好"},{"key":2,"source":"morning","target":"早上"}],"relatedTerms":["greeting"],"keywords":["good","morning"],"grammarNotes":["问候语气"]}`;
             const r = await self.callModelWithJSON<TranslateQueryResponse>(prompt, systemPrompt);
             const raw = r.data as any;
             const segments = Array.isArray(raw?.segments)
               ? raw.segments
-                  .map((s: any) => ({ source: asStr(s?.source), target: asStr(s?.target) }))
-                  .filter((s: any) => s.source || s.target)
+                  .map((s: any) => ({ key: asKey(s?.key), source: asStr(s?.source), target: asStr(s?.target) }))
+                  // 无键（key = 0）或两侧都空的条目直接丢掉 —— 前端只按 key 配对
+                  .filter((s: any) => s.key > 0 && s.source && s.target)
                   .slice(0, 300)
               : [];
             const styleRaw = asStr(raw?.style);
@@ -2212,7 +2223,8 @@ ${text}
               style: style || 'casual',
               sourceLang: inferSourceLangByScript(text),
               targetLang: normalizeLanguage(targetLang, getAIContentLanguage()),
-              segments: [{ source: text, target: text }],
+              // 兜底路径拿不到对照关系（原文即译文），宁可不给 segments，也不给假配对
+              segments: undefined,
               relatedTerms: [],
               keywords: [],
               grammarNotes: [],
