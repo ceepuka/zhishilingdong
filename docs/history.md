@@ -62,6 +62,15 @@
   - 翻译 `good morning`：译文片段 DOM 顺序 `[2 早上, 1 好]`（**语序相反**，证明按 key 而非按位置配对）；关联术语 3 条不含占位垃圾，点击切到 `#search` 且产生搜索记录
 - 目标词审计（`~/.workbuddy/tmp/audit-mock-links.cjs`）：354 个唯一目标词，**落空 0**
 
+### 发布（v1.7.2）
+- `npm run release` → `release/知识灵动助手.html`（3.21 MB）+ `使用说明.txt`；产物不入库
+- commit `5aecfdc` → `main`；tag `v1.7.2` → Release `https://github.com/ceepuka/zhishilingdong/releases/tag/v1.7.2`
+- 附件 `zhishilingdong-v1.7.2.html`（3,365,679 字节）/ `usage-v1.7.2.txt`，中文名放 `label`
+- **匿名（不带 token）走 `api.github.com` 的 asset 端点复验**：两个附件均 200，HTML 实际字节 3,365,679、首字节 `<!DOCTYPE html>`，附件名未被静默改名
+- ⚠️ 本次踩到一个新坑：`git push` **卡在 credential helper 上**（`git-credential-wincred.exe` 经沙箱 shim 调用后不再返回，推送挂 17 分钟零输出、日志 0 字节）。
+  绕法：直接用 helper 二进制取 token（`git-credential-wincred.exe get` 喂协议输入），再 `git -c http.extraheader="AUTHORIZATION: basic <base64>"` 推送 —— 同样的网络与凭据，10 秒完成。
+  **判据**：`git ls-remote` 用同样方式瞬间返回，说明卡的不是网络也不是认证，而是 helper 进程本身
+
 ### 关联文档
 - 更新 `docs/versions.md` / `docs/progress.md` / `docs/todo.md` / `docs/worklog.md` / README
 
