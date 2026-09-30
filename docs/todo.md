@@ -14,7 +14,13 @@
 - ✅ 历史模块浏览登记重构（m035~m040）：浏览中状态收归 `HistoryProvider`、单条键存储、磁盘真相读写、30s 心跳，登记身份改用用户输入而非模型返回字段
 - ✅ **发布形态统一为单文件 HTML**（2026-09-29）：`npm run release` → `release/知识灵动助手.html`；移除 Netlify / Vercel / 本地静态服务；仓库只留源码，产物挂 GitHub Release 附件（tag `v1.7.1`）
 
-**最后更新**：2026-09-29
+**v1.7.2（已发布）** ✅
+- ✅ **查词/翻译接入统一续写链路**（2026-09-30，修用户实测的 `Failed to parse JSON response`）：新增 `generateJSONWithContinuation()` + `buildJSONKeysCompleteChecker()`，复用同一个续写循环（查词/翻译此前是**唯一还走非流式入口**的生成路径）；解析层技术描述不再上屏（`friendlyTranslateError`），删掉 catch 里的静默 mock 兜底；`GenerationNotice` 挂到词条/翻译结果卡末尾
+- ✅ **翻译逐段对照改为「AI 填 key、前端按 key 配对」**（2026-09-30）：原"按位置单调扫描"在语序相反时直接丢对照（`Good morning → 早上好`）；渲染只从 `original`/`translation` 切区间，绝不拼接 `segments`
+- ✅ **词典/翻译关键词带释义 + 全入口跳转**（2026-09-30）：关键词改 `{term, definition}` 并用共享 `TermList` 渲染；查词模式的关键词/关联术语/常用搭配点击跳查词，翻译模式关键词跳查词、关联术语跳知识搜索；翻译风格选择器前移到输入区
+- ✅ **演示数据（Mock）补齐**（2026-09-30）：9 条短语词条 + 68 条词条全量 `collocations`/`relatedTerms` + 10 条策展翻译语料（去占位垃圾）+ 未收录词的降级拆解释义；新增全量守卫测试，354 个可点击目标 0 落空
+
+**最后更新**：2026-09-30
 
 ## P0 - 当前任务
 - [ ] 响应式适配优化（移动端）
@@ -56,6 +62,7 @@
 | v1.7.0 | 2026-09-15 | 版权声明/MIT LICENSE/仓库清理 + 生成中断分类 + 全链路续写 + 错误处理分层 + 分档提示横幅（**正式发布**） | ✅ |
 | v1.7.1 | 2026-09-15~29 | 收藏内容渲染一致性（共享 `KnowledgeContentView`）+ 6 处边界修复 + Markdown 公式渲染 + 收藏存储降级 + 中断提示归位内容末尾 + 尾部快照兜底 + 历史模块浏览登记重构（m035~m040） | ✅ 已提交 |
 | **发布形态** | 2026-09-29 | 正式发布形态统一为单文件 HTML：`npm run release` → `release/知识灵动助手.html`；移除 Netlify / Vercel / `server.js` / `start.bat`；**产物不入库，挂 GitHub Release 附件**（tag `v1.7.1`） | ✅ 已发布 |
+| v1.7.2 | 2026-09-30 | 查词/翻译接入统一续写链路（修 `Failed to parse JSON response`）+ 错误文案不上屏 + 翻译对照改 key 配对 + 关键词带释义与全入口跳转 + 演示数据补齐（m041~m042） | ✅ 已发布 |
 
 ## 依赖关系
 - AI服务抽象层是所有AI相关功能的基础

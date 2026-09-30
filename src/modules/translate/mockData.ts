@@ -1,4 +1,4 @@
-import { WordResult, SentenceResult } from '../../types';
+import { WordResult } from '../../types';
 
 export const mockWordResult: Record<string, WordResult> = {
   sample: {
@@ -1073,188 +1073,336 @@ export const mockWordResult: Record<string, WordResult> = {
     synonyms: ['intelligence', 'insight', 'prudence'],
     antonyms: ['foolishness', 'stupidity'],
   },
-};
 
-export const mockSentenceResult: (text: string, style: string) => SentenceResult = (text, style) => {
-  const stylePrefix = style === 'academic' ? '学术风格：' : style === 'business' ? '商务风格：' : '日常风格：';
-  
-  const translations: Record<string, string> = {
-    'Hello': stylePrefix + '你好',
-    'Thank you': stylePrefix + '谢谢你',
-    'Good morning': stylePrefix + '早上好',
-    'How are you': stylePrefix + '你好吗',
-    'What is your name': stylePrefix + '你叫什么名字',
-    'I love you': stylePrefix + '我爱你',
-    'Goodbye': stylePrefix + '再见',
-    'Welcome': stylePrefix + '欢迎',
-    'Please': stylePrefix + '请',
-    'Sorry': stylePrefix + '对不起',
-    'The quick brown fox jumps over the lazy dog': stylePrefix + '敏捷的棕色狐狸跳过懒狗',
-    'Artificial Intelligence is transforming the world': stylePrefix + '人工智能正在改变世界',
-    'Machine learning algorithms can learn from data': stylePrefix + '机器学习算法可以从数据中学习',
-    'Natural language processing enables computers to understand human language': stylePrefix + '自然语言处理使计算机能够理解人类语言',
-    'Deep learning has achieved remarkable results in image recognition': stylePrefix + '深度学习在图像识别方面取得了显著成果',
-    'The internet has revolutionized communication': stylePrefix + '互联网彻底改变了通信方式',
-    'Data science combines statistics, programming, and domain knowledge': stylePrefix + '数据科学结合了统计学、编程和领域知识',
-    'Quantum computing represents the next generation of computational technology': stylePrefix + '量子计算代表了下一代计算技术',
-    'Renewable energy sources include solar, wind, and hydro power': stylePrefix + '可再生能源包括太阳能、风能和水力发电',
-    'Global warming is a pressing environmental issue': stylePrefix + '全球变暖是一个紧迫的环境问题',
-    '经济': stylePrefix + 'Economy',
-    '科技': stylePrefix + 'Technology',
-    '人工智能': stylePrefix + 'Artificial Intelligence',
-    '机器学习': stylePrefix + 'Machine Learning',
-    '深度学习': stylePrefix + 'Deep Learning',
-    '自然语言处理': stylePrefix + 'Natural Language Processing',
-    '计算机视觉': stylePrefix + 'Computer Vision',
-    '大数据': stylePrefix + 'Big Data',
-    '云计算': stylePrefix + 'Cloud Computing',
-    '物联网': stylePrefix + 'Internet of Things',
-    '区块链': stylePrefix + 'Blockchain',
-    '量子计算': stylePrefix + 'Quantum Computing',
-    '软件工程': stylePrefix + 'Software Engineering',
-    '编程语言': stylePrefix + 'Programming Language',
-    '数据库': stylePrefix + 'Database',
-    '网络安全': stylePrefix + 'Cybersecurity',
-    '软件开发': stylePrefix + 'Software Development',
-    '算法': stylePrefix + 'Algorithm',
-    '数据结构': stylePrefix + 'Data Structure',
-    '物理': stylePrefix + 'Physics',
-    '数学': stylePrefix + 'Mathematics',
-    '化学': stylePrefix + 'Chemistry',
-    '生物学': stylePrefix + 'Biology',
-    '历史': stylePrefix + 'History',
-    '哲学': stylePrefix + 'Philosophy',
-    '艺术': stylePrefix + 'Art',
-    '音乐': stylePrefix + 'Music',
-    '教育': stylePrefix + 'Education',
-    '健康': stylePrefix + 'Health',
-    '医学': stylePrefix + 'Medicine',
-    '心理学': stylePrefix + 'Psychology',
-    '社会学': stylePrefix + 'Sociology',
-    '经济学': stylePrefix + 'Economics',
-    '政治学': stylePrefix + 'Political Science',
-    '法学': stylePrefix + 'Law',
-    '商业': stylePrefix + 'Business',
-    '管理': stylePrefix + 'Management',
-    '市场营销': stylePrefix + 'Marketing',
-    '金融': stylePrefix + 'Finance',
-    '投资': stylePrefix + 'Investment',
-    '创新': stylePrefix + 'Innovation',
-    '创业': stylePrefix + 'Entrepreneurship',
-    '领导力': stylePrefix + 'Leadership',
-    '团队合作': stylePrefix + 'Teamwork',
-    '沟通': stylePrefix + 'Communication',
-    '时间管理': stylePrefix + 'Time Management',
-    '问题解决': stylePrefix + 'Problem Solving',
-    '批判性思维': stylePrefix + 'Critical Thinking',
-    '创造力': stylePrefix + 'Creativity',
-    '适应能力': stylePrefix + 'Adaptability',
-    '情商': stylePrefix + 'Emotional Intelligence',
-    '你好': stylePrefix + 'Hello',
-    '谢谢': stylePrefix + 'Thank you',
-    '对不起': stylePrefix + 'Sorry',
-    '请': stylePrefix + 'Please',
-    '再见': stylePrefix + 'Goodbye',
-    '是的': stylePrefix + 'Yes',
-    '不是': stylePrefix + 'No',
-    '好的': stylePrefix + 'OK',
-    '可以': stylePrefix + 'Can / May',
-    '需要': stylePrefix + 'Need',
-    '想要': stylePrefix + 'Want',
-    '喜欢': stylePrefix + 'Like',
-    '爱': stylePrefix + 'Love',
-    '工作': stylePrefix + 'Work',
-    '学习': stylePrefix + 'Study',
-    '生活': stylePrefix + 'Life',
-    '幸福': stylePrefix + 'Happiness',
-    '成功': stylePrefix + 'Success',
-    '梦想': stylePrefix + 'Dream',
-    '目标': stylePrefix + 'Goal',
-    '计划': stylePrefix + 'Plan',
-    '行动': stylePrefix + 'Action',
-    '坚持': stylePrefix + 'Perseverance',
-    '努力': stylePrefix + 'Effort',
-    '智慧': stylePrefix + 'Wisdom',
-    '知识': stylePrefix + 'Knowledge',
-    '理解': stylePrefix + 'Understanding',
-    '思考': stylePrefix + 'Thinking',
-    '创造': stylePrefix + 'Creation',
-    '发展': stylePrefix + 'Development',
-    '进步': stylePrefix + 'Progress',
-    '改变': stylePrefix + 'Change',
-    '挑战': stylePrefix + 'Challenge',
-    '机会': stylePrefix + 'Opportunity',
-    '问题': stylePrefix + 'Problem',
-    '解决方案': stylePrefix + 'Solution',
-    '方法': stylePrefix + 'Method',
-    '技术': stylePrefix + 'Technology',
-    '工具': stylePrefix + 'Tool',
-    '系统': stylePrefix + 'System',
-    '架构': stylePrefix + 'Architecture',
-    '设计': stylePrefix + 'Design',
-    '实现': stylePrefix + 'Implementation',
-    '优化': stylePrefix + 'Optimization',
-    '部署': stylePrefix + 'Deployment',
-    '测试': stylePrefix + 'Testing',
-    '调试': stylePrefix + 'Debugging',
-    '维护': stylePrefix + 'Maintenance',
-    '文档': stylePrefix + 'Documentation',
-    '代码': stylePrefix + 'Code',
-    '编程': stylePrefix + 'Programming',
-    '开发': stylePrefix + 'Development',
-    '编码': stylePrefix + 'Coding',
-    '版本控制': stylePrefix + 'Version Control',
-    'Git': stylePrefix + 'Git',
-    'GitHub': stylePrefix + 'GitHub',
-    '开源': stylePrefix + 'Open Source',
-    '框架': stylePrefix + 'Framework',
-    '库': stylePrefix + 'Library',
-    'API': stylePrefix + 'API',
-    '接口': stylePrefix + 'Interface',
-    '协议': stylePrefix + 'Protocol',
-    '网络': stylePrefix + 'Network',
-    '服务器': stylePrefix + 'Server',
-    '客户端': stylePrefix + 'Client',
-    '前端': stylePrefix + 'Frontend',
-    '后端': stylePrefix + 'Backend',
-    'SQL': stylePrefix + 'SQL',
-    'NoSQL': stylePrefix + 'NoSQL',
-    '数据': stylePrefix + 'Data',
-    '信息': stylePrefix + 'Information',
-    '分析': stylePrefix + 'Analysis',
-    '统计': stylePrefix + 'Statistics',
-    '模型': stylePrefix + 'Model',
-    '训练': stylePrefix + 'Training',
-    '验证': stylePrefix + 'Validation',
-    '预测': stylePrefix + 'Prediction',
-    '推理': stylePrefix + 'Inference',
-  };
-  
-  const trimmedText = text.trim();
-  const translation = translations[trimmedText] || stylePrefix + `这是"${text}"的示例翻译。AI翻译引擎可以准确地将多种语言互相转换，保持原文的语义和语气。`;
-
-  // 对照表（演示用）：按空白切块，逐块配一个 key（从 1 起）。
-  // 配不上对（译文块不够）的原文块**不放进数组** —— 界面上就是"无键"，不高亮。
-  const srcParts = text.split(/(\s+)/).filter((s) => s.length > 0);
-  const tgtParts = translation.split(/(\s+)/).filter((s) => s.length > 0);
-  const segments = srcParts
-    .slice(0, tgtParts.length)
-    .map((source, i) => ({ key: i + 1, source, target: tgtParts[i] }))
-    .filter((seg) => seg.target.length > 0);
-
-  return {
-    original: text,
-    translation,
-    style: style as 'academic' | 'business' | 'casual',
-    sourceLang: /[\u4e00-\u9fff]/.test(text) ? 'zh' : 'en',
-    targetLang: /[\u4e00-\u9fff]/.test(text) ? 'en' : 'zh',
-    segments,
-    relatedTerms: ['相关术语A', '相关术语B', '相关术语C'],
-    keywords: ['AI翻译', '语义转换', '自然语言处理', '多语言支持'],
-    grammarNotes: [
-      '现在完成时态：表示过去发生的动作对现在的影响',
-      '被动语态转换：英文被动句转换为中文主动句',
-      '定语从句处理：长定语从句拆分为独立短句',
+  // ------------------------------------------------------------------
+  // 短语 / 多词词条
+  //
+  // 单词词条之外必须有短语条目：**短语查询是"关键词带释义 + 可点击跳查词"的主场**
+  // （`isPhrase` 为真才返回 keywords）。没有这些条目时，查短语会落到 `defaultWordData`，
+  // 演示者看到的是"暂无该单词的释义"，三个新做的可点击区块一个都不出现。
+  //
+  // 选词依据：① 已有词条的 `relatedTerms` 里被引用到的短语（algorithm → data structure /
+  // big O notation）；② 演示语料里的高频短语；③ 常用搭配型短语。
+  // ------------------------------------------------------------------
+  'good morning': {
+    word: 'good morning',
+    isPhrase: true,
+    phonetic: '/ɡʊd ˈmɔːrnɪŋ/',
+    definitions: [
+      {
+        pos: 'phrase',
+        meaning: '早上好（上午见面时的问候语）',
+        example: {
+          en: 'Good morning! Did you sleep well?',
+          zh: '早上好！你睡得好吗？',
+        },
+      },
     ],
-  };
+    keywords: [
+      { term: 'good', definition: '好的；令人愉快的' },
+      { term: 'morning', definition: '早晨；上午（中午 12 点前）' },
+    ],
+    relatedTerms: ['greeting', 'salutation', 'good afternoon', 'good evening'],
+    collocations: ['say good morning to someone', 'a good morning', 'Good morning, everyone.'],
+    register: '日常口语（对任何人都通用，比 "Morning." 更完整）',
+  },
+  'respond well to': {
+    word: 'respond well to',
+    isPhrase: true,
+    phonetic: '/rɪˈspɑːnd wel tuː/',
+    definitions: [
+      {
+        pos: 'phrase',
+        meaning: '对……反应良好；对……有良好疗效',
+        example: {
+          en: 'The patient did not respond well to the initial treatment and required an alternative therapy.',
+          zh: '该患者对初步治疗反应不佳，需要替代疗法。',
+        },
+      },
+      {
+        pos: 'phrase',
+        meaning: '对……适应良好；在……（环境或条件）下生长旺盛',
+        example: {
+          en: 'These tropical plants respond well to warm, humid environments.',
+          zh: '这些热带植物在温暖潮湿的环境中生长旺盛。',
+        },
+      },
+      {
+        pos: 'phrase',
+        meaning: '对……做出积极回应；对……反馈良好',
+        example: {
+          en: 'Children respond well to praise and clear routines.',
+          zh: '孩子对表扬和清晰的作息安排反应积极。',
+        },
+      },
+    ],
+    keywords: [
+      { term: 'respond', definition: '作出反应；回应' },
+      { term: 'well', definition: '好地；令人满意地（此处修饰 respond）' },
+      { term: 'treatment', definition: '治疗；处理方法' },
+      { term: 'therapy', definition: '疗法；治疗方案' },
+      { term: 'environment', definition: '环境；外界条件' },
+    ],
+    relatedTerms: ['react to', 'respond to', 'treatment response', 'tolerance'],
+    collocations: ['respond well to treatment', 'respond well to therapy', 'respond poorly to', 'respond well to change'],
+    register: '中性（医学 / 农业 / 教育语境都常用）',
+  },
+  'data structure': {
+    word: 'data structure',
+    isPhrase: true,
+    phonetic: '/ˈdeɪtə ˈstrʌktʃər/',
+    definitions: [
+      {
+        pos: 'n.',
+        meaning: '数据结构（数据在计算机中组织、存储与访问的方式）',
+        example: {
+          en: 'Choosing the right data structure often matters more than the algorithm itself.',
+          zh: '选对数据结构往往比算法本身更关键。',
+        },
+      },
+    ],
+    keywords: [
+      { term: 'data', definition: '数据' },
+      { term: 'structure', definition: '结构；组织方式' },
+      { term: 'array', definition: '数组（连续内存、按下标随机访问）' },
+      { term: 'tree', definition: '树（分层结构，如二叉树、B 树）' },
+    ],
+    relatedTerms: ['algorithm', 'array', 'linked list', 'stack', 'queue', 'tree', 'graph'],
+    collocations: ['data structure and algorithm', 'linear data structure', 'tree data structure', 'choose a data structure'],
+  },
+  'machine learning': {
+    word: 'machine learning',
+    isPhrase: true,
+    phonetic: '/məˈʃiːn ˈlɜːrnɪŋ/',
+    definitions: [
+      {
+        pos: 'n.',
+        meaning: '机器学习（让程序从数据中自动归纳规律的方法）',
+        example: {
+          en: 'Machine learning models improve as they are exposed to more data.',
+          zh: '机器学习模型接触的数据越多，表现通常越好。',
+        },
+      },
+    ],
+    keywords: [
+      { term: 'machine', definition: '机器；此处指计算机系统' },
+      { term: 'learning', definition: '学习；从数据中归纳规律的过程' },
+      { term: 'model', definition: '模型（输入到输出的映射）' },
+      { term: 'training', definition: '训练（用数据调整模型参数）' },
+    ],
+    relatedTerms: ['deep learning', 'neural network', 'supervised learning', 'training data'],
+    collocations: ['machine learning model', 'machine learning algorithm', 'supervised machine learning', 'train a machine learning model'],
+  },
+  'artificial intelligence': {
+    word: 'artificial intelligence',
+    isPhrase: true,
+    phonetic: '/ˌɑːrtɪˈfɪʃl ɪnˈtelɪdʒəns/',
+    definitions: [
+      {
+        pos: 'n.',
+        meaning: '人工智能（让机器完成需要人类智能的任务的技术）',
+        example: {
+          en: 'Artificial intelligence is changing how we search for and organize knowledge.',
+          zh: '人工智能正在改变我们检索与组织知识的方式。',
+        },
+      },
+    ],
+    keywords: [
+      { term: 'artificial', definition: '人工的；人造的' },
+      { term: 'intelligence', definition: '智能；理解与推理的能力' },
+      { term: 'agent', definition: '智能体（能感知环境并采取行动的程序）' },
+    ],
+    relatedTerms: ['machine learning', 'deep learning', 'neural network', 'natural language processing', 'computer vision'],
+    collocations: ['artificial intelligence system', 'applied artificial intelligence', 'artificial general intelligence', 'the rise of artificial intelligence'],
+  },
+  'deep learning': {
+    word: 'deep learning',
+    isPhrase: true,
+    phonetic: '/diːp ˈlɜːrnɪŋ/',
+    definitions: [
+      {
+        pos: 'n.',
+        meaning: '深度学习（用多层神经网络自动提取特征的方法）',
+        example: {
+          en: 'Deep learning has achieved remarkable results in image recognition.',
+          zh: '深度学习在图像识别方面取得了显著成果。',
+        },
+      },
+    ],
+    keywords: [
+      { term: 'deep', definition: '深的；此处指网络层数多' },
+      { term: 'neural', definition: '神经的（neural network 神经网络）' },
+      { term: 'layer', definition: '层；网络中的一层计算单元' },
+      { term: 'training', definition: '训练' },
+    ],
+    relatedTerms: ['machine learning', 'neural network', 'convolutional neural network', 'backpropagation'],
+    collocations: ['deep learning model', 'deep learning framework', 'deep neural network', 'train a deep learning model'],
+  },
+  'natural language processing': {
+    word: 'natural language processing',
+    isPhrase: true,
+    phonetic: '/ˈnætʃrəl ˈlæŋɡwɪdʒ ˈprɑːsesɪŋ/',
+    definitions: [
+      {
+        pos: 'n.',
+        meaning: '自然语言处理（让计算机理解与生成人类语言的技术）',
+        example: {
+          en: 'Natural language processing enables computers to understand human language.',
+          zh: '自然语言处理使计算机能够理解人类语言。',
+        },
+      },
+    ],
+    keywords: [
+      { term: 'natural', definition: '自然的（指人类日常使用的语言）' },
+      { term: 'language', definition: '语言' },
+      { term: 'processing', definition: '处理；加工' },
+      { term: 'text', definition: '文本；待处理的语言数据' },
+      { term: 'token', definition: '词元（切分后的最小处理单位）' },
+    ],
+    relatedTerms: ['machine learning', 'large language model', 'tokenization', 'sentiment analysis', 'computer vision'],
+    collocations: ['natural language processing model', 'natural language processing task', 'applied natural language processing'],
+  },
+  'big o notation': {
+    word: 'big O notation',
+    isPhrase: true,
+    phonetic: '/bɪɡ oʊ noʊˈteɪʃn/',
+    definitions: [
+      {
+        pos: 'n.',
+        meaning: '大 O 记号（描述算法复杂度随规模增长的量级）',
+        example: {
+          en: 'Binary search runs in O(log n) time using big O notation.',
+          zh: '用大 O 记号表示，二分查找的时间复杂度是 O(log n)。',
+        },
+      },
+    ],
+    keywords: [
+      { term: 'notation', definition: '记号；表示法' },
+      { term: 'complexity', definition: '复杂度（算法代价随规模的增长方式）' },
+      { term: 'algorithm', definition: '算法' },
+    ],
+    relatedTerms: ['time complexity', 'space complexity', 'algorithm', 'asymptotic analysis'],
+    collocations: ['time complexity in big O notation', 'express in big O notation', 'big O notation for'],
+  },
+  'take into account': {
+    word: 'take into account',
+    isPhrase: true,
+    phonetic: '/teɪk ˈɪntuː əˈkaʊnt/',
+    definitions: [
+      {
+        pos: 'phrase',
+        meaning: '把……考虑在内；顾及',
+        example: {
+          en: 'The estimate did not take the cost of maintenance into account.',
+          zh: '这份估算没有把维护成本考虑在内。',
+        },
+      },
+    ],
+    keywords: [
+      { term: 'account', definition: '考虑；account for 亦作"占……比例"解' },
+      { term: 'consider', definition: '考虑；认为' },
+      { term: 'factor', definition: '因素；把……当作因素考虑' },
+    ],
+    relatedTerms: ['consider', 'factor in', 'allow for', 'take account of'],
+    collocations: ['take into account the fact that', 'fully take into account', 'take all factors into account'],
+  },
+  'in terms of': {
+    word: 'in terms of',
+    isPhrase: true,
+    phonetic: '/ɪn tɜːrmz əv/',
+    definitions: [
+      {
+        pos: 'phrase',
+        meaning: '就……而言；在……方面',
+        example: {
+          en: 'In terms of performance, the new version is roughly twice as fast.',
+          zh: '就性能而言，新版本大约快了一倍。',
+        },
+      },
+    ],
+    keywords: [
+      { term: 'terms', definition: '术语；条件；说法（此处指"从某个角度说"）' },
+      { term: 'aspect', definition: '方面；角度' },
+    ],
+    relatedTerms: ['as regards', 'with respect to', 'regarding', 'in the context of'],
+    collocations: ['in terms of cost', 'in terms of quality', 'in terms of performance'],
+  },
 };
+// ------------------------------------------------------------------
+// 常用搭配 / 关联术语补充表
+//
+// 为什么要有这张表：`collocations`（常用搭配）此前**一个词条都没有** ——
+// 结果就是"常用搭配"这个区块在 Mock 演示里永远不出现，试用者会以为功能没做。
+// `relatedTerms` 也只覆盖了 15/58 条，同样导致区块大面积缺席。
+//
+// 合并规则：**已有值优先**（原词条里手写的 relatedTerms 更贴学科，不要覆盖）。
+// 关联术语尽量指向本文件里真实存在的词条 —— 点它跳查词才会得到有内容的结果。
+// ------------------------------------------------------------------
+const mockExtra: Record<string, { collocations?: string[]; relatedTerms?: string[] }> = {
+  sample: { collocations: ['a random sample', 'a representative sample', 'sample size', 'collect samples'], relatedTerms: ['data', 'analysis', 'result'] },
+  algorithm: { collocations: ['sorting algorithm', 'search algorithm', 'algorithm complexity', 'design an algorithm'], relatedTerms: ['data structure', 'big O notation', 'function'] },
+  architecture: { collocations: ['software architecture', 'system architecture', 'layered architecture', 'architecture design'], relatedTerms: ['framework', 'interface', 'system', 'design'] },
+  abstract: { collocations: ['abstract concept', 'abstract thinking', 'in the abstract'], relatedTerms: ['concept', 'theory', 'idea'] },
+  implement: { collocations: ['implement a plan', 'implement a feature', 'implement a policy', 'fully implemented'], relatedTerms: ['development', 'process', 'method'] },
+  optimize: { collocations: ['optimize performance', 'optimize the process', 'optimize for speed', 'optimize resource usage'], relatedTerms: ['performance', 'method', 'process'] },
+  deploy: { collocations: ['deploy an application', 'deploy to production', 'deploy a model', 'deployment pipeline'], relatedTerms: ['integration', 'system', 'process'] },
+  integration: { collocations: ['system integration', 'integration test', 'seamless integration', 'data integration'], relatedTerms: ['system', 'framework', 'interface'] },
+  framework: { collocations: ['development framework', 'theoretical framework', 'within the framework of'], relatedTerms: ['architecture', 'interface', 'system'] },
+  interface: { collocations: ['user interface', 'programming interface', 'interface design'], relatedTerms: ['framework', 'system', 'architecture'] },
+  artificial: { collocations: ['artificial intelligence', 'artificial light', 'artificial flavor'], relatedTerms: ['artificial intelligence', 'machine learning'] },
+  intelligence: { collocations: ['artificial intelligence', 'emotional intelligence', 'business intelligence'], relatedTerms: ['artificial intelligence', 'knowledge', 'understanding'] },
+  machine: { collocations: ['machine learning', 'machine translation', 'by machine'], relatedTerms: ['machine learning', 'computer', 'system'] },
+  learning: { collocations: ['machine learning', 'deep learning', 'learning curve', 'lifelong learning'], relatedTerms: ['machine learning', 'deep learning', 'knowledge'] },
+  deep: { collocations: ['deep learning', 'deep understanding', 'deep dive'], relatedTerms: ['deep learning', 'neural network'] },
+  neural: { collocations: ['neural network', 'artificial neural network', 'neural network model'], relatedTerms: ['neural network', 'deep learning', 'machine learning'] },
+  network: { collocations: ['neural network', 'computer network', 'social network', 'network security'], relatedTerms: ['neural network', 'computer', 'system'] },
+  natural: { collocations: ['natural language', 'natural resources', 'natural process'], relatedTerms: ['natural language processing', 'language'] },
+  language: { collocations: ['natural language', 'programming language', 'foreign language', 'language model'], relatedTerms: ['natural language processing', 'computer', 'understanding'] },
+  processing: { collocations: ['natural language processing', 'data processing', 'image processing', 'processing power'], relatedTerms: ['natural language processing', 'data', 'computer'] },
+  computer: { collocations: ['computer science', 'computer vision', 'computer program'], relatedTerms: ['computer vision', 'algorithm', 'system'] },
+  vision: { collocations: ['computer vision', 'vision system', 'clear vision', 'field of vision'], relatedTerms: ['computer vision', 'deep learning', 'machine learning'] },
+  science: { collocations: ['computer science', 'data science', 'basic science'], relatedTerms: ['data', 'research', 'theory'] },
+  technology: { collocations: ['information technology', 'emerging technology', 'technology stack', 'adopt technology'], relatedTerms: ['innovation', 'development', 'system'] },
+  physics: { collocations: ['theoretical physics', 'quantum physics', 'laws of physics', 'applied physics'], relatedTerms: ['equation', 'theory', 'mathematics'] },
+  mathematics: { collocations: ['applied mathematics', 'pure mathematics', 'advanced mathematics'], relatedTerms: ['equation', 'theorem', 'formula', 'function'] },
+  chemistry: { collocations: ['organic chemistry', 'inorganic chemistry', 'a chemical reaction', 'chemistry laboratory'], relatedTerms: ['formula', 'equation', 'process'] },
+  biology: { collocations: ['molecular biology', 'cell biology', 'the biology of'], relatedTerms: ['science', 'research', 'process'] },
+  history: { collocations: ['in history', 'a long history', 'record history', 'history of science'], relatedTerms: ['process', 'development', 'research'] },
+  economy: { collocations: ['market economy', 'global economy', 'a booming economy', 'state of the economy'], relatedTerms: ['development', 'process', 'research'] },
+  function: { collocations: ['a key function', 'function as', 'mathematical function', 'function call'], relatedTerms: ['equation', 'formula', 'mathematics'] },
+  equation: { collocations: ['solve an equation', 'differential equation', 'balance the equation', 'equation of state'], relatedTerms: ['formula', 'theorem', 'mathematics'] },
+  theorem: { collocations: ['prove a theorem', 'Pythagorean theorem', 'central limit theorem'], relatedTerms: ['equation', 'formula', 'mathematics'] },
+  formula: { collocations: ['chemical formula', 'a simple formula', 'formula for success', 'apply a formula'], relatedTerms: ['equation', 'theorem', 'method'] },
+  system: { collocations: ['operating system', 'system design', 'a system of', 'complex system'], relatedTerms: ['architecture', 'process', 'system'] },
+  theory: { collocations: ['in theory', 'theory of relativity', 'scientific theory', 'put theory into practice'], relatedTerms: ['theorem', 'concept', 'research'] },
+  data: { collocations: ['data analysis', 'data set', 'raw data', 'collect data'], relatedTerms: ['data structure', 'analysis', 'model'] },
+  model: { collocations: ['machine learning model', 'data model', 'business model', 'model training'], relatedTerms: ['machine learning', 'data', 'theory'] },
+  analysis: { collocations: ['data analysis', 'cost-benefit analysis', 'analysis of', 'statistical analysis'], relatedTerms: ['data', 'method', 'research'] },
+  method: { collocations: ['scientific method', 'research method', 'a method for solving', 'method and approach'], relatedTerms: ['approach', 'process', 'analysis'] },
+  approach: { collocations: ['a new approach', 'approach to', 'adopt an approach'], relatedTerms: ['method', 'solution', 'process'] },
+  solution: { collocations: ['a practical solution', 'solution to the problem', 'find a solution', 'optimal solution'], relatedTerms: ['problem', 'method', 'approach'] },
+  problem: { collocations: ['solve a problem', 'problem solving', 'a common problem', 'problem statement'], relatedTerms: ['solution', 'challenge', 'method'] },
+  challenge: { collocations: ['face a challenge', 'a major challenge', 'rise to the challenge'], relatedTerms: ['problem', 'opportunity', 'solution'] },
+  opportunity: { collocations: ['take the opportunity', 'a great opportunity', 'opportunity cost', 'equal opportunity'], relatedTerms: ['challenge', 'problem', 'solution'] },
+  result: { collocations: ['as a result', 'result in', 'experimental results', 'the final result'], relatedTerms: ['analysis', 'process', 'method'] },
+  process: { collocations: ['in the process', 'development process', 'process data', 'process of'], relatedTerms: ['method', 'system', 'development'] },
+  development: { collocations: ['software development', 'research and development', 'personal development', 'development process'], relatedTerms: ['process', 'improvement', 'research'] },
+  improvement: { collocations: ['continuous improvement', 'room for improvement', 'improvement in', 'performance improvement'], relatedTerms: ['development', 'process', 'result'] },
+  research: { collocations: ['scientific research', 'do research on', 'research and development', 'research findings'], relatedTerms: ['method', 'analysis', 'development'] },
+  innovation: { collocations: ['technological innovation', 'drive innovation', 'a culture of innovation', 'product innovation'], relatedTerms: ['creativity', 'technology', 'development'] },
+  creativity: { collocations: ['creative thinking', 'foster creativity', 'creativity and innovation'], relatedTerms: ['thinking', 'innovation', 'idea'] },
+  thinking: { collocations: ['critical thinking', 'design thinking', 'way of thinking', 'logical thinking'], relatedTerms: ['creativity', 'idea', 'concept'] },
+  idea: { collocations: ['a good idea', 'the main idea', 'come up with an idea'], relatedTerms: ['concept', 'thinking', 'creativity'] },
+  concept: { collocations: ['basic concept', 'the concept of', 'a key concept', 'abstract concept'], relatedTerms: ['idea', 'theory', 'understanding'] },
+  understanding: { collocations: ['deep understanding', 'mutual understanding', 'understanding of'], relatedTerms: ['knowledge', 'concept', 'learning'] },
+  knowledge: { collocations: ['knowledge base', 'a body of knowledge', 'acquire knowledge', 'general knowledge'], relatedTerms: ['understanding', 'wisdom', 'learning'] },
+  wisdom: { collocations: ['conventional wisdom', 'words of wisdom', 'the wisdom of'], relatedTerms: ['knowledge', 'understanding', 'thinking'] },
+};
+
+for (const [key, extra] of Object.entries(mockExtra)) {
+  const entry = mockWordResult[key];
+  if (!entry) continue;
+  // 已有值优先：原词条里手写的 relatedTerms 更贴学科，不能被表里的通用词顶掉
+  if (!entry.collocations?.length && extra.collocations?.length) entry.collocations = extra.collocations;
+  if (!entry.relatedTerms?.length && extra.relatedTerms?.length) entry.relatedTerms = extra.relatedTerms;
+}

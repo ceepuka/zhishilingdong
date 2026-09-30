@@ -21,6 +21,14 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<TabType>('search');
   const [confirmClearHistory, setConfirmClearHistory] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  /**
+   * 跨模块跳转带过来的搜索词。
+   *
+   * 为什么用 state 而不是直接调 `searchRef.current.search(term)`：切标签页时
+   * SearchModule 是**那一刻才挂载**的，ref 还是 null。所以只能把词放在这里，
+   * 让搜索模块挂载后自己去消费，消费完回调清空 —— 否则下次挂载（切走再切回）会又搜一遍。
+   */
+  const [pendingSearchTerm, setPendingSearchTerm] = useState<string | null>(null);
   const searchRef = useRef<ModuleRef>(null);
   const translateRef = useRef<ModuleRef>(null);
   const docRef = useRef<ModuleRef>(null);
@@ -52,18 +60,38 @@ function AppContent() {
     window.location.hash = tab;
   };
 
+  /** 翻译模式的关联术语 → 切到知识搜索，并用该术语发起搜索 */
+  const handleSearchTopic = (term: string) => {
+    setPendingSearchTerm(term);
+    handleTabChange('search');
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'search':
-        return <SearchModule key={refreshKey} ref={searchRef} />;
+        return (
+          <SearchModule
+            key={refreshKey}
+            ref={searchRef}
+            initialQuery={pendingSearchTerm}
+            onInitialQueryConsumed={() => setPendingSearchTerm(null)}
+          />
+        );
       case 'translate':
-        return <TranslateModule key={refreshKey} ref={translateRef} />;
+        return <TranslateModule key={refreshKey} ref={translateRef} onSearchTopic={handleSearchTopic} />;
       case 'doc':
         return <DocModule key={refreshKey} ref={docRef} />;
       case 'favorites':
         return <FavoritesModule key={refreshKey} ref={favoritesRef} />;
       default:
-        return <SearchModule key={refreshKey} ref={searchRef} />;
+        return (
+          <SearchModule
+            key={refreshKey}
+            ref={searchRef}
+            initialQuery={pendingSearchTerm}
+            onInitialQueryConsumed={() => setPendingSearchTerm(null)}
+          />
+        );
     }
   };
 

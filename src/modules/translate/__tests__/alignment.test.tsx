@@ -119,7 +119,8 @@ describe('alignment — 按 key 收集区间', () => {
 
 let SentenceResult: ComponentType<{
   result: SentenceResultType;
-  onStyleChange: (style: 'academic' | 'business' | 'casual') => void;
+  onLookup?: (term: string) => void;
+  onSearchTopic?: (term: string) => void;
 }>;
 
 beforeAll(async () => {
@@ -149,7 +150,7 @@ const baseResult = (over: Partial<SentenceResultType>): SentenceResultType =>
   }) as SentenceResultType;
 
 const renderWith = (result: SentenceResultType) =>
-  render(<SentenceResult result={result} onStyleChange={() => {}} />);
+  render(<SentenceResult result={result} />);
 
 const box = (c: HTMLElement, id: string) => c.querySelector(`[data-testid="${id}"]`) as HTMLElement;
 const keyed = (c: HTMLElement, id: string) =>

@@ -1,5 +1,55 @@
 # 版本里程碑
 
+## v1.7.2 (2026-09-30) —— 查词/翻译接入统一续写链路 + 演示数据补齐
+
+> 本版起点是一个用户实测报错：**点关键词跳转查词时报「Failed to parse JSON response」**。
+> 根因不是模型不稳定，而是查词/翻译是全项目**唯一还没接入续写链路**的生成入口；
+> 顺带把这条链路上"技术细节直接上屏"的老问题一并收掉，并补齐了演示用的 Mock 数据。
+
+### 一、查词/翻译接入统一续写链路（修 "Failed to parse JSON response"）
+
+- 新增 `BaseAIProvider.generateJSONWithContinuation<T>(prompt, systemPrompt, depth, requiredKeys, signal?)`：
+  复用**同一个** `callModelStreamWithContinuation`（同一重试预算 `MAX_GENERATION_ATTEMPTS=3`、同一 `canContinueAfter` 判据、同一套中断归因），
+  只是不需要增量回调。**没有另写一套非流式续写**（两套实现必然漂移）
+- 新增 `buildJSONKeysCompleteChecker(requiredKeys)`：与 `buildGenerateCompleteChecker` 同口径（复用解析层 `analyzeJSON`，不另写括号配对）；
+  查词必填 `['word','definitions']`、翻译必填 `['original','translation']`
+- 确实一个字都没解析出来时才抛 `GenerationInterruptedError`，由 `withFallback(strict)` 透传 code；
+  有半截 JSON 就渲染出来（`lastRenderable` 兜底），不再"整段丢弃"
+- `DictionaryQueryResponse` / `TranslateQueryResponse` 与 `WordResult` / `SentenceResult` 新增 `truncated` / `continued` / `interruption`，
+  `GenerationNotice` 挂在**结果卡末尾**（放内容之前等于"先报错再看内容"）
+- 新建 `src/modules/translate/errorText.ts::friendlyTranslateError(code, raw)`：**不复用**搜索的 `toFriendlyError`
+  （那套假设"已收到内容已展示"，措辞会与屏幕不符）；`translate/index.tsx` 的 catch **不再静默塞 mock 结果**
+
+### 二、演示数据（Mock）补到"点得到就有内容"
+
+- `mockData.ts`：新增 9 条**短语词条**（含复现用户报错原文的 `respond well to`）；新增 `mockExtra` 合并表，
+  为全部 **68 条**词条补齐 `collocations` / `relatedTerms`（已有值优先）；删除无引用的死代码 `mockSentenceResult`
+- `mockAIService.ts`：
+  - `mockMiniGlossary` 兜底词表扩到 130+ 条（含关联术语/常用搭配里的词素）
+  - 新增 `deriveMockKeywords()`：短语按词表拆出"词 + 一句话释义"，**查不到释义的词直接不返回**（不塞碎词）
+  - 新增 `deriveMockFallbackDefinitions()`：未收录词不再一律"暂无该单词的释义"，改为按词素给一条**标注了降级**的拆解释义；
+    一个词素都查不到时仍如实显示"暂无"（不编造词义）
+  - 新增 `mockSentenceExtras`（10 条策展语料）：译文/关键词/关联术语/语法说明都是真内容，
+    其中 `good morning → 早上好` 的 `tokens` 按**原文词序**配 key（key1 good→好、key2 morning→早上），
+    演示"译文语序与原文相反时只能按 key 配对"；没策展数据就不给，不再编造 `相关词汇` / `语法说明` 这类占位垃圾
+
+### 三、质量守卫
+
+- 新增 `src/modules/translate/__tests__/mockLinks.test.ts`：**全量**遍历所有可点击目标（关联术语 / 常用搭配 / 关键词，354 个唯一词），
+  用假时钟跳过 mock 的 `delay(300)` 逐个查一遍，断言没有一个落到空词条。以后往词条里加词而词表没跟上，这条测试立刻红
+- 浏览器探针 `~/.workbuddy/tmp/probe-mock-v172.cjs`（21 项断言）与 `audit-mock-links.cjs`
+
+### 验证
+
+- `tsc --noEmit` 零错误；vitest **383 例 / 34 文件全绿**
+- 真实浏览器（`http://localhost:5173`，Mock 模式）21 项断言全过、0 console error / 0 pageerror：
+  - 查词 `algorithm`：常用搭配 4 条、关联术语 5 条全部出现，点击真的换成那个词的结果且**不是空词条**
+  - 查词 `good morning`：短语徽标 + 2 条带释义的关键词 + 3 条常用搭配，点关键词跳查词
+  - 翻译 `good morning`：译文片段 DOM 顺序为 `[2,1]`（语序相反、按 key 配对），关联术语 3 条不含占位垃圾、点击切到 `#search` 并真的发起搜索
+- 可点击目标审计：354 个唯一目标词，落空 **0** 个（修复前 104/243 的关联术语、240/247 的常用搭配落到空词条）
+
+---
+
 ## v1.7.1 (2026-09-29) —— 发布形态正式定为单文件 HTML
 
 > 本版把**发布形态**收敛为一种：一个可以直接双击打开的 HTML。

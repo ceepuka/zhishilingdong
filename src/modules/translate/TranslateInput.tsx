@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { TranslateMode } from '../../types';
+import { TranslateMode, TranslateStyle } from '../../types';
 import type { LanguageCode, SourceLanguageCode } from '../../i18n/languages';
 import { languageLabel, TARGET_LANGUAGE_OPTIONS } from '../../i18n/languages';
 import { TextArea } from '../../components/ui/Input';
 import { useStrings, fmt } from '../../hooks/useStrings';
+import type { Strings } from '../../i18n/strings';
 import { getMaxInput, truncateInput } from './constants';
 
 interface Props {
@@ -19,11 +20,22 @@ interface Props {
   /** 自动检测到的源语言（用于在"自动检测"项后展示） */
   detectedSource?: LanguageCode | null;
   onSwap?: () => void;
+  /** 翻译风格：**翻译前**选择，随本次翻译一起提交 */
+  style: TranslateStyle;
+  onStyleChange: (style: TranslateStyle) => void;
 }
 
 const selectClass =
   'px-2.5 py-2 text-sm rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 ' +
   'text-slate-700 dark:text-zinc-200 focus:outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100 transition-all';
+
+function styleOptions(s: Strings): { id: TranslateStyle; label: string }[] {
+  return [
+    { id: 'academic', label: `${s.translate.styleAcademic}${s.translate.styleSuffix}` },
+    { id: 'business', label: `${s.translate.styleBusiness}${s.translate.styleSuffix}` },
+    { id: 'casual', label: `${s.translate.styleCasual}${s.translate.styleSuffix}` },
+  ];
+}
 
 export function TranslateInput({
   onTranslate,
@@ -35,8 +47,11 @@ export function TranslateInput({
   onTargetChange,
   detectedSource,
   onSwap,
+  style,
+  onStyleChange,
 }: Props) {
   const s = useStrings();
+  const styles = styleOptions(s);
   const [text, setText] = useState('');
   const [truncatedNotice, setTruncatedNotice] = useState(false);
 
@@ -145,6 +160,30 @@ export function TranslateInput({
           </select>
         </div>
       </div>
+
+      {/* 翻译风格：放在输入框之前 —— 风格是"这次要翻成什么样"的输入项，
+          不是结果的一部分。放在结果卡上等于让用户翻完再挑风格、再等一次重翻。 */}
+      {mode === 'translate' && (
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <span className="text-sm text-slate-500 dark:text-zinc-400">{s.translate.styleLabel}</span>
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 rounded-lg p-1">
+            {styles.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onStyleChange(item.id)}
+                className={`px-3 py-1.5 rounded-md text-sm transition-all ${
+                  style === item.id
+                    ? 'bg-white dark:bg-zinc-900 text-teal-700 dark:text-teal-400 shadow-sm font-medium'
+                    : 'text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-200'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 输入区 */}
       {mode === 'dictionary' ? (

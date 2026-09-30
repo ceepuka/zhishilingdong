@@ -23,6 +23,7 @@ import {
   StreamSnapshot,
   KnowledgeGraphNode,
   KnowledgeType,
+  KeywordEntry,
 } from '../types';
 import {
   mockKnowledgeData,
@@ -41,6 +42,368 @@ const defaultWordData: WordResult = {
   word: '',
   phonetic: '',
   definitions: [{ pos: '', meaning: '暂无该单词的释义' }],
+};
+
+/**
+ * Mock 模式的一句话释义表（关键词用的兜底）。
+ *
+ * 关键词现在带释义，没有这张表的话 mock 演示里关键词就只有光秃秃的词，
+ * 看不出"词 + 释义"的效果。**只覆盖演示语料里的常用词**，查不到就退化成
+ * 只有词（真实 provider 由 AI 填 definition，不走这张表）。
+ *
+ * 覆盖范围跟着「演示语料」走：常用词 + 短语词条拆出来的词 + 礼貌用语，
+ * 保证随便点一个关键词都能看到"词 + 解释"的实际效果。
+ */
+const mockMiniGlossary: Record<string, string> = {
+  // 常用词
+  sample: '样本；例子',
+  data: '数据；资料',
+  structure: '结构；组织方式',
+  model: '模型；范例',
+  algorithm: '算法；计算程序',
+  method: '方法；办法',
+  process: '过程；流程',
+  system: '系统；体系',
+  theory: '理论；学说',
+  concept: '概念；观念',
+  idea: '想法；主意',
+  knowledge: '知识；学识',
+  learning: '学习；学问',
+  research: '研究；调查',
+  analysis: '分析；解析',
+  science: '科学；学科',
+  technology: '技术；科技',
+  language: '语言；语言文字',
+  computer: '计算机；电脑',
+  network: '网络；网状系统',
+  function: '功能；函数',
+  equation: '方程；等式',
+  formula: '公式；配方',
+  theorem: '定理；原理',
+  result: '结果；成果',
+  problem: '问题；难题',
+  solution: '解决方案；答案',
+  challenge: '挑战；难题',
+  opportunity: '机会；时机',
+  development: '发展；开发',
+  improvement: '改进；提高',
+  innovation: '创新；革新',
+  creativity: '创造力；创造性',
+  thinking: '思考；思维',
+  understanding: '理解；领会',
+  wisdom: '智慧；明智',
+  vision: '视力；视野；愿景',
+  processing: '处理；加工',
+  deep: '深的；深刻的',
+  natural: '自然的；天生的',
+  artificial: '人工的；人造的',
+  machine: '机器；机械',
+  neural: '神经的',
+
+  // 问候 / 礼貌用语
+  good: '好的；令人愉快的',
+  morning: '早晨；上午',
+  afternoon: '下午',
+  evening: '傍晚；晚上',
+  hello: '你好；喂',
+  world: '世界；世间',
+  thank: '感谢；谢谢',
+  thanks: '感谢；谢意',
+  goodbye: '再见',
+  bye: '再见',
+  please: '请；请问',
+  sorry: '抱歉的；对不起',
+  welcome: '欢迎；受欢迎的',
+  you: '你；你们',
+  your: '你的；你们的',
+  how: '怎样；如何',
+  are: '是（be 动词复数形式）',
+  this: '这；这个',
+  that: '那；那个',
+  today: '今天',
+  tomorrow: '明天',
+  meeting: '会议；会面',
+  report: '报告；汇报',
+  project: '项目；工程',
+
+  // 短语词条拆出来的词 / 常用搭配里的词
+  respond: '作出反应；回应',
+  well: '好地；令人满意地',
+  treatment: '治疗；处理',
+  therapy: '疗法；治疗方案',
+  environment: '环境；外界条件',
+  plant: '植物；种植',
+  warm: '温暖的；热心的',
+  humid: '潮湿的；湿润的',
+  account: '考虑；账目',
+  consider: '考虑；认为',
+  factor: '因素；要素',
+  terms: '术语；条件；说法',
+  aspect: '方面；角度',
+  notation: '记号；表示法',
+  complexity: '复杂性；复杂度',
+  training: '训练；培训',
+  layer: '层；阶层',
+  token: '词元；标记',
+  text: '文本；正文',
+
+  // 关联术语里出现、但不在词条表里的词。
+  // 这些词在演示里是**可点击目标**（点一下就是查词），没有释义就会落到
+  // deriveMockFallbackDefinitions 的兜底或"暂无该单词的释义"——看起来像断链。
+  // 每条只给一句话释义，够词条页/关键词列表显示即可，不求词典级完整。
+  ai: '人工智能（Artificial Intelligence 的缩写）',
+  api: '应用程序接口（Application Programming Interface）',
+  sdk: '软件开发工具包（Software Development Kit）',
+  gdp: '国内生产总值（Gross Domestic Product）',
+  nlp: '自然语言处理（Natural Language Processing）',
+  cnn: '卷积神经网络（Convolutional Neural Network）',
+  rnn: '循环神经网络（Recurrent Neural Network）',
+  gpt: 'GPT 系列生成式预训练模型',
+  bert: 'BERT 预训练语言模型',
+  transformer: 'Transformer 模型（基于注意力机制的架构）',
+  array: '数组；阵列',
+  queue: '队列；排队',
+  stack: '栈；堆叠',
+  tree: '树（数据结构）；树状图',
+  graph: '图；图表',
+  recursion: '递归',
+  iteration: '迭代；反复',
+  backpropagation: '反向传播（训练神经网络的算法）',
+  tokenization: '分词；标记化',
+  database: '数据库',
+  library: '库；函数库',
+  plugin: '插件',
+  middleware: '中间件',
+  microservices: '微服务（一种架构风格）',
+  monolithic: '单体式的（架构）',
+  scalability: '可扩展性',
+  performance: '性能；表现',
+  greeting: '问候语；招呼',
+  salutation: '称呼语；致意',
+  regarding: '关于；就……而言',
+  tolerance: '耐受性；宽容度',
+  biochemistry: '生物化学',
+  genetics: '遗传学',
+  ecology: '生态学',
+  physiology: '生理学',
+  evolution: '演化；进化',
+  electromagnetism: '电磁学',
+  thermodynamics: '热力学',
+  relativity: '相对论',
+  macroeconomics: '宏观经济学',
+  microeconomics: '微观经济学',
+  inflation: '通货膨胀',
+  unemployment: '失业；失业率',
+  robotics: '机器人学',
+
+  // 常用搭配里的"尾巴词"：搭配是多词短语，只要有一个词素能解释，
+  // 兜底拆解句就立得住（否则整条短语点下去还是空的）。
+  collect: '收集；采集',
+  pattern: '模式；范式',
+  fully: '完全地；充分地',
+  implemented: '实现；落地（implement 的过去分词）',
+  deployment: '部署；上线',
+  pipeline: '流水线；管道',
+  speech: '言语；语音',
+  recognition: '识别；认可',
+  object: '物体；对象',
+  detection: '检测；发现',
+  classical: '经典的；古典的',
+  mechanics: '力学；机理',
+  quantum: '量子；量子的',
+  chemical: '化学的；化学物质',
+  reaction: '反应；反作用',
+  experimental: '实验的；实验性的',
+  react: '作出反应；起反应',
+  linked: '链接的；相连的',
+  list: '列表；清单',
+  allow: '允许；使可能',
+  regards: '关于；问候',
+  respect: '方面；尊重',
+  context: '语境；上下文',
+  agent: '智能体；代理（能感知环境并采取行动的程序）',
+};
+
+/**
+ * Mock 版的"关键词分析"：从一段文本里挑出值得单独学的词，并附上一句话释义。
+ *
+ * 释义来源优先级：词条数据（`mockWordResult`，更权威）> 兜底词表（`mockMiniGlossary`）。
+ * **查不到释义的词直接不返回** —— Mock 是给人看的演示，塞一堆没有释义的碎词
+ * 反而看不出"关键词带释义"这件事（真实 provider 的降级策略由 TermList 负责，
+ * 缺释义只少一行字、不会少一条）。
+ */
+function deriveMockKeywords(text: string, max: number): KeywordEntry[] {
+  const tokens = text
+    .split(/[\s,，、;；.。!！?？:：'"“”‘’()（）\[\]【】]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 1);
+
+  const seen = new Set<string>();
+  const out: KeywordEntry[] = [];
+  for (const term of tokens) {
+    const key = term.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const definition =
+      mockWordResult[key]?.definitions?.[0]?.meaning || mockMiniGlossary[key];
+    if (!definition) continue;
+    out.push({ term, definition });
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
+ * Mock 版的"未收录词"兜底释义。
+ *
+ * 为什么需要：Mock 的演示动作几乎全是"点一下某个词"（关联术语 / 常用搭配 / 关键词），
+ * 而这些目标词绝大多数不在 68 条词表里。全部落到 `defaultWordData` 的话，演示时
+ * 每点一次都是"暂无该单词的释义"——看起来像功能坏了，而这些区块本身是对的。
+ *
+ * 这里**不编造词义**：只把查得到的词素逐个解释，并明确标注这是演示降级
+ * （接入真实模型后同样输入会有准确释义）。一个词素都查不到时保持原样，
+ * 让"查不到"这件事如实显示。
+ */
+function deriveMockFallbackDefinitions(word: string): WordResult['definitions'] {
+  const parts = word
+    .trim()
+    .toLowerCase()
+    .split(/[^a-z0-9'’-]+/i)
+    .filter(Boolean);
+
+  const explained = parts
+    .map((part) => {
+      const gloss =
+        mockWordResult[part]?.definitions?.[0]?.meaning || mockMiniGlossary[part];
+      if (!gloss) return null;
+      // 词表释义常带"（……）"补充和分号并列义项，取第一段让拆解句保持简短
+      const first = gloss.split(/[；;（(]/)[0].trim();
+      return first ? `${part} ${first}` : null;
+    })
+    .filter((x): x is string => !!x);
+
+  if (explained.length === 0) return defaultWordData.definitions;
+
+  return [
+    {
+      pos: parts.length > 1 ? 'phrase' : 'word',
+      meaning:
+        `逐词拆解：${explained.join(' + ')}。` +
+        '（Demo 数据未收录该词条的完整释义，配置模型密钥后会有准确解释）',
+    },
+  ];
+}
+
+/**
+ * 演示语料表（翻译模式）。
+ *
+ * 为什么需要它：`queryTranslate` 原先给的是 `relatedTerms: ['相关词汇']` /
+ * `grammarNotes: ['语法说明']` 这类**占位垃圾** —— 关联术语点下去会拿去搜知识库，
+ * 搜"相关词汇"只会得到一堆无关内容；"语法说明"更是纯噪音。
+ *
+ * 这里只策展少量典型句子，每条都给真实可用的内容；**没命中就什么都不给**（区块不显示），
+ * 不编造。`tokens` 是按**原文词序**排列的译文块：key1 = 第 1 个原文词，
+ * 允许译文顺序与原文相反（`Good morning → ['好','早上']`），这是"按 key 配对而非按位置配对"
+ * 最直观的演示场景。
+ */
+const mockSentenceExtras: Record<
+  string,
+  {
+    translation: string;
+    tokens?: string[];
+    keywords?: KeywordEntry[];
+    relatedTerms?: string[];
+    grammarNotes?: string[];
+  }
+> = {
+  'good morning': {
+    translation: '早上好',
+    // key1 = good → 好、key2 = morning → 早上：**译文里"早上"排在"好"之前**，
+    // 顺序与原文相反，只有按 key 配对才能正确高亮
+    tokens: ['好', '早上'],
+    keywords: [
+      { term: 'good', definition: '好的；令人愉快的' },
+      { term: 'morning', definition: '早晨；上午（中午 12 点前）' },
+    ],
+    relatedTerms: ['英语问候语', 'greeting', 'good evening'],
+    grammarNotes: [
+      '英语问候语是固定搭配，不能按字面拆成"好的 + 早上"逐字直译。',
+      '译文语序与原文相反（good→好 排在 morning→早上 之后），对照按 key 配对而非按位置配对。',
+    ],
+  },
+  hello: {
+    translation: '你好',
+    tokens: ['你好'],
+    keywords: [{ term: 'hello', definition: '你好；喂（招呼语）' }],
+    relatedTerms: ['英语问候语', 'greeting'],
+    grammarNotes: ['hello 是比较中性的招呼语，正式场合也通用。'],
+  },
+  'hello world': {
+    translation: '你好世界',
+    tokens: ['你好', '世界'],
+    keywords: [
+      { term: 'hello', definition: '你好；喂（招呼语）' },
+      { term: 'world', definition: '世界；世间' },
+    ],
+    relatedTerms: ['编程入门', 'hello world 程序'],
+    grammarNotes: ['"Hello, world!" 是编程语言入门示例的惯用输出，通常作为第一段代码。'],
+  },
+  'thank you': {
+    translation: '谢谢',
+    tokens: ['谢谢'],
+    keywords: [
+      { term: 'thank', definition: '感谢；谢谢' },
+      { term: 'you', definition: '你；你们' },
+    ],
+    relatedTerms: ['英语礼貌用语', 'gratitude'],
+    grammarNotes: ['thank you 是一个整体表达，中间的 you 是宾语，不能省略。'],
+  },
+  'how are you': {
+    translation: '你好吗',
+    tokens: ['你', '好', '吗'],
+    keywords: [
+      { term: 'how', definition: '怎样；如何' },
+      { term: 'are', definition: '是（be 动词复数形式）' },
+      { term: 'you', definition: '你；你们' },
+    ],
+    relatedTerms: ['英语问候语', '英语疑问句'],
+    grammarNotes: ['这是主系表结构的疑问句，语序是"疑问词 + be + 主语"，中文习惯把"吗"放在末尾。'],
+  },
+  goodbye: {
+    translation: '再见',
+    tokens: ['再见'],
+    keywords: [{ term: 'goodbye', definition: '再见；告别' }],
+    relatedTerms: ['英语问候语', 'farewell'],
+    grammarNotes: ['goodbye 由 God be with ye 缩合而来，口语里也常用更随意的 bye。'],
+  },
+  你好: {
+    translation: 'hello',
+    tokens: ['hello'],
+    keywords: [{ term: '你好', definition: '见面的礼貌招呼语' }],
+    relatedTerms: ['英语问候语', 'greeting'],
+    grammarNotes: ['中文"你好"对应英文 hello / hi，后者更随意，多用于熟人之间。'],
+  },
+  谢谢: {
+    translation: 'thank you',
+    tokens: ['thank', 'you'],
+    keywords: [{ term: '谢谢', definition: '表示感谢的礼貌用语' }],
+    relatedTerms: ['英语礼貌用语', 'gratitude'],
+    grammarNotes: ['中文"谢谢"是独立成句的客套语，英文对应 thank you 需要保留主语 you。'],
+  },
+  再见: {
+    translation: 'goodbye',
+    tokens: ['goodbye'],
+    keywords: [{ term: '再见', definition: '道别时的礼貌用语' }],
+    relatedTerms: ['英语问候语', 'farewell'],
+    grammarNotes: ['告别场景里 see you / bye 比 goodbye 更口语化。'],
+  },
+  早上好: {
+    translation: 'good morning',
+    tokens: ['good', 'morning'],
+    keywords: [{ term: '早上好', definition: '上午见面时的问候语' }],
+    relatedTerms: ['英语问候语', 'good morning'],
+    grammarNotes: ['英文问候语按时间段区分：morning / afternoon / evening 各有一套固定说法。'],
+  },
 };
 
 const docTemplates: Record<DocType, (topic: string, requirements?: string, tone?: EmailTone) => string> = {
@@ -502,11 +865,18 @@ export const mockAIService: AIService = {
       await delay(300);
       const lowerWord = word.toLowerCase();
       const isPhrase = /\s/.test(word.trim()) || word.trim().length > 20;
-      const data = mockWordResult[lowerWord] || defaultWordData;
+      const hit = mockWordResult[lowerWord];
+      const data = hit || defaultWordData;
+      // 未收录时不直接甩"暂无该单词的释义"——演示里点关联术语/常用搭配几乎必然
+      // 落到这里，空词条看起来像坏掉；改为按词素给一条标注了降级的拆解释义。
+      const definitions = hit ? data.definitions : deriveMockFallbackDefinitions(word);
 
-      // 短语/多词：模拟 AI 分析出的关键词（最多 10 个）
+      // 短语/多词：模拟 AI 分析出的关键词（最多 10 个），带上一句话释义。
+      // 词条自带 keywords 时直接用（人工写的比拆词更准）；否则按词表拆。
       const keywords = isPhrase
-        ? Array.from(new Set(word.split(/[\s,，、;；]+/).map((w) => w.trim()).filter((w) => w.length > 1))).slice(0, 10)
+        ? data.keywords?.length
+          ? data.keywords.slice(0, 10)
+          : deriveMockKeywords(word, 10)
         : undefined;
 
       return {
@@ -515,18 +885,19 @@ export const mockAIService: AIService = {
           word: data.word || word,
           isPhrase,
           phonetic: data.phonetic,
-          definitions: data.definitions.map((d: { pos: string; meaning: string; example?: { en: string; zh: string } }) => ({
+          definitions: definitions.map((d: { pos: string; meaning: string; example?: { en: string; zh: string } }) => ({
             pos: d.pos,
             meaning: d.meaning,
             example: d.example ? { en: d.example.en, zh: d.example.zh } : undefined,
           })),
-          keywords,
+          keywords: keywords?.length ? keywords : undefined,
           synonyms: data.synonyms,
           antonyms: data.antonyms,
           relatedTerms: data.relatedTerms,
           collocations: data.collocations || [],
           register: data.register || '',
           etymology: data.etymology || '',
+          imageQuery: data.imageQuery,
         },
       };
     },
@@ -534,38 +905,28 @@ export const mockAIService: AIService = {
     async queryTranslate(text: string, sourceLang?: string, targetLang?: string, style?: string): Promise<AIResponse<TranslateQueryResponse>> {
       await delay(400);
 
-      const translations: Record<string, string> = {
-        'hello': '你好',
-        'hello world': '你好世界',
-        'good morning': '早上好',
-        'thank you': '谢谢',
-        'how are you': '你好吗',
-        'goodbye': '再见',
-      };
-
-      const trimmed = text.toLowerCase();
-      let translation = translations[trimmed] || text;
-
-      const zhEnTranslations: Record<string, string> = {
-        '你好': 'hello',
-        '谢谢': 'thank you',
-        '再见': 'goodbye',
-        '早上好': 'good morning',
-      };
-      if (zhEnTranslations[text]) {
-        translation = zhEnTranslations[text];
-      }
-
+      const curated = mockSentenceExtras[text.trim()] || mockSentenceExtras[text.trim().toLowerCase()];
       const translateStyle = (style as 'academic' | 'business' | 'casual') || 'casual';
 
-      // 对照表（演示用）：按空白切块，逐块配一个 key（从 1 起）。
-      // 配不上对（译文块不够）的原文块**不放进数组** —— 界面上就是"无键"，不高亮。
-      const srcParts = text.split(/(\s+)/).filter((s) => s.length > 0);
-      const tgtParts = translation.split(/(\s+)/).filter((s) => s.length > 0);
-      const segments = srcParts
-        .slice(0, tgtParts.length)
-        .map((source, i) => ({ key: i + 1, source, target: tgtParts[i] }))
-        .filter((seg) => seg.target.length > 0);
+      // 译文：演示语料表命中 → 用表里的；否则原样返回（Mock 没有真实翻译能力，不编造）
+      const translation = curated?.translation ?? text;
+
+      // 对照表：优先用语料表里手写的 `tokens`（按**原文词序**排列，允许译文顺序与原文相反，
+      // 例 Good morning → ['好','早上']，正是"按 key 配对而非按位置配对"的演示场景）。
+      // 没有手写数据时退回按空白切块 —— 这只是保底，配不上对就不放进数组（界面上是"无键"）。
+      const srcTokens = text.trim().split(/\s+/).filter((s) => s.length > 0);
+      const segments = curated?.tokens
+        ? curated.tokens
+            .slice(0, srcTokens.length)
+            .map((target, i) => ({ key: i + 1, source: srcTokens[i], target }))
+            .filter((seg) => seg.source && seg.target)
+        : (() => {
+            const tgtParts = translation.split(/(\s+)/).filter((s) => s.length > 0);
+            return srcTokens
+              .slice(0, tgtParts.length)
+              .map((source, i) => ({ key: i + 1, source, target: tgtParts[i] }))
+              .filter((seg) => seg.target.length > 0);
+          })();
 
       return {
         success: true,
@@ -575,10 +936,12 @@ export const mockAIService: AIService = {
           style: translateStyle,
           sourceLang: sourceLang || (/[\u4e00-\u9fff]/.test(text) ? 'zh' : 'en'),
           targetLang: targetLang || (/[\u4e00-\u9fff]/.test(text) ? 'en' : 'zh'),
-          segments,
-          relatedTerms: ['相关词汇'],
-          keywords: text.split(' ').filter(w => w.length > 2),
-          grammarNotes: ['语法说明'],
+          segments: segments.length > 0 ? segments : undefined,
+          // 没有策展数据时**不编造**关联术语与语法说明 —— 宁可区块不显示，
+          // 也不要出现「相关词汇」「语法说明」这种占位垃圾（点它跳知识搜索会搜出一堆无关内容）
+          relatedTerms: curated?.relatedTerms,
+          keywords: curated?.keywords ?? deriveMockKeywords(text, 6),
+          grammarNotes: curated?.grammarNotes,
         },
       };
     },

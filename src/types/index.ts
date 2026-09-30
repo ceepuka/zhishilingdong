@@ -3,7 +3,7 @@
  * 这里显式引入 —— 注意底部 `export * from './ai'` 只做再导出，
  * **不会**把名字带进本文件的局部作用域。
  */
-import type { GenerationInterruption } from './ai';
+import type { GenerationInterruption, KeywordEntry } from './ai';
 
 export type TabType = 'search' | 'translate' | 'doc' | 'favorites';
 
@@ -137,8 +137,8 @@ export interface WordResult {
   isPhrase?: boolean;
   phonetic: string;
   definitions: WordDefinition[];
-  /** 短语/多词查询时 AI 分析出的关键词（最多 10 个），可点击继续查词 */
-  keywords?: string[];
+  /** 短语/多词查询时 AI 分析出的关键词（最多 10 个），带释义、可点击继续查词 */
+  keywords?: KeywordEntry[];
   synonyms?: string[];
   antonyms?: string[];
   relatedTerms?: string[];
@@ -152,6 +152,12 @@ export interface WordResult {
   image?: string;
   /** 配图检索关键词（用于生图服务/图库兜底，语言由 AI 决定） */
   imageQuery?: string;
+  /** 结果可能不完整（续写次数用尽仍未补全），UI 在内容末尾提示 */
+  truncated?: boolean;
+  /** 本次生成触发过自动续写/重发 */
+  continued?: boolean;
+  /** 中断归因（模型输出上限 / 网络中断 / 超时 / 安全策略…） */
+  interruption?: GenerationInterruption;
 }
 
 export type TranslateStyle = 'academic' | 'business' | 'casual';
@@ -174,8 +180,15 @@ export interface SentenceResult {
   /** 原文↔译文对照项（key 由 AI 按原文顺序填写），用于"选词标记的实时映射" */
   segments?: { key?: number; source: string; target: string }[];
   relatedTerms?: string[];
-  keywords?: string[];
+  /** 句子里的关键词，带释义、可点击继续查词 */
+  keywords?: KeywordEntry[];
   grammarNotes?: string[];
+  /** 结果可能不完整（续写次数用尽仍未补全），UI 在内容末尾提示 */
+  truncated?: boolean;
+  /** 本次生成触发过自动续写/重发 */
+  continued?: boolean;
+  /** 中断归因（模型输出上限 / 网络中断 / 超时 / 安全策略…） */
+  interruption?: GenerationInterruption;
 }
 
 export type DocType = 'general' | 'email' | 'report' | 'meeting' | 'ppt' | 'notes' | 'contract' | 'resume' | 'press' | 'proposal' | 'weekly';

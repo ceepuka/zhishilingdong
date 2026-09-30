@@ -3,6 +3,8 @@ import { SentenceResult as SentenceResultType, TranslateStyle } from '../../type
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Tag } from '../../components/ui/Tag';
+import { TermList } from '../../components/ui/TermList';
+import { GenerationNotice } from '../../components/ui/GenerationNotice';
 import { downloadFile } from '../../utils/export';
 import { useFavorites } from '../../hooks/useFavorites';
 import { useSpeechSynthesis } from '../../hooks/useSpeechSynthesis';
@@ -18,7 +20,10 @@ import {
 } from './alignment';
 interface SentenceResultProps {
   result: SentenceResultType;
-  onStyleChange: (style: TranslateStyle) => void;
+  /** 点击关键词再查一次（跳词典查词模式） */
+  onLookup?: (term: string) => void;
+  /** 点击关联术语去知识搜索 */
+  onSearchTopic?: (term: string) => void;
 }
 
 function styleOptions(s: Strings): { id: TranslateStyle; label: string }[] {
@@ -29,9 +34,11 @@ function styleOptions(s: Strings): { id: TranslateStyle; label: string }[] {
   ];
 }
 
-export function SentenceResult({ result, onStyleChange }: SentenceResultProps) {
+export function SentenceResult({ result, onLookup, onSearchTopic }: SentenceResultProps) {
   const s = useStrings();
   const styles = styleOptions(s);
+  /** 当前结果用的风格 —— 风格在翻译前选，所以这里只做展示 */
+  const usedStyle = styles.find((st) => st.id === result.style)?.label ?? result.style;
   const { favorites, isFavorite, addFavorite, removeFavorite } = useFavorites();
   const fav = isFavorite(result, 'translation');
   const [speaking, setSpeaking] = useState<'original' | 'translation' | null>(null);
@@ -94,7 +101,10 @@ export function SentenceResult({ result, onStyleChange }: SentenceResultProps) {
   };
 
   const handleExport = () => {
-    const keywordsText = result.keywords ? `\n\n${s.translate.keywords}：` + result.keywords.join('、') : '';
+    const keywordsText = result.keywords
+      ? `\n\n${s.translate.keywords}：` +
+        result.keywords.map((k) => (k.definition ? `${k.term}（${k.definition}）` : k.term)).join('、')
+      : '';
     const grammarText = result.grammarNotes
       ? `\n\n${s.translate.grammarNote}：\n` + result.grammarNotes.map((g) => '- ' + g).join('\n')
       : '';
@@ -170,21 +180,10 @@ export function SentenceResult({ result, onStyleChange }: SentenceResultProps) {
           <span className="px-2 py-1 bg-amber-100 text-amber-700 text-xs font-medium rounded">
             {s.translate.sentenceModeBadge}
           </span>
-          <div className="flex gap-2">
-            {styles.map((style) => (
-              <button
-                key={style.id}
-                onClick={() => onStyleChange(style.id)}
-                className={`px-3 py-1 text-sm rounded-lg transition-all ${
-                  result.style === style.id
-                    ? 'bg-teal-100 text-teal-700 font-medium'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                {style.label}
-              </button>
-            ))}
-          </div>
+          {/* 风格在翻译前选择（见 TranslateInput），这里只展示这次用的是哪种 */}
+          <span className="px-2 py-1 bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 text-xs font-medium rounded">
+            {usedStyle}
+          </span>
         </div>
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={handleCopy}>
@@ -257,10 +256,17 @@ export function SentenceResult({ result, onStyleChange }: SentenceResultProps) {
 
       {result.relatedTerms && result.relatedTerms.length > 0 && (
         <div className="mt-6">
-          <h4 className="text-sm font-medium text-slate-500 mb-2">{s.translate.relatedTerms}</h4>
+          <h4 className="text-sm font-medium text-slate-500 mb-2">{s.translate.relatedTermsSearch}</h4>
           <div className="flex flex-wrap gap-2">
             {result.relatedTerms.map((term, index) => (
-              <Tag key={index} variant="primary">{term}</Tag>
+              <Tag
+                key={index}
+                variant="primary"
+                onClick={onSearchTopic ? () => onSearchTopic(term) : undefined}
+                title={onSearchTopic ? s.translate.relatedTermsSearch : undefined}
+              >
+                {term}
+              </Tag>
             ))}
           </div>
         </div>
@@ -268,12 +274,12 @@ export function SentenceResult({ result, onStyleChange }: SentenceResultProps) {
 
       {result.keywords && result.keywords.length > 0 && (
         <div className="mt-6">
-          <h4 className="text-sm font-medium text-slate-500 mb-2">{s.translate.keywords}</h4>
-          <div className="flex flex-wrap gap-2">
-            {result.keywords.map((kw, index) => (
-              <Tag key={index} variant="primary">{kw}</Tag>
-            ))}
-          </div>
+          <h4 className="text-sm font-medium text-slate-500 mb-2">{s.translate.keywordHint}</h4>
+          <TermList
+            items={result.keywords}
+            onSelect={onLookup}
+            actionLabel={s.translate.keywordsLookupAction}
+          />
         </div>
       )}
 
@@ -293,6 +299,13 @@ export function SentenceResult({ result, onStyleChange }: SentenceResultProps) {
           </div>
         </div>
       )}
+
+      {/* 中断/续写提示固定放在**内容最后**（禁止挂页顶或内容上方：那等于先报错再看内容） */}
+      {result.interruption || result.truncated || result.continued ? (
+        <div className="mt-6">
+          <GenerationNotice data={result} />
+        </div>
+      ) : null}
     </Card>
   );
 }

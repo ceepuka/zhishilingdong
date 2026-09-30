@@ -40,22 +40,46 @@ export const translateEn = {
     styleBusiness: 'Business',
     styleCasual: 'Casual',
     styleSuffix: ' style',
+    styleLabel: 'Translation style',
     sentenceModeBadge: 'Sentence mode',
     copyTranslation: 'Copy translation',
     export: 'Export',
     alignmentHint: 'Tip: click (or select) a word in the original — the matching part of the translation is highlighted in sync. Parts without a pairing are not highlighted.',
     relatedTerms: 'Related terms',
+    /** 查词模式：关联术语 / 常用搭配可点击继续查词 */
+    relatedTermsLookup: 'Related terms (click to look up)',
+    collocationsLookup: 'Common collocations (click to look up)',
+    /** 翻译模式：关联术语点击跳到知识搜索 */
+    relatedTermsSearch: 'Related terms (click to search knowledge)',
     exportFilePrefix: 'translation-',
     exportStyle: 'Style',
     dictModeBadge: 'Dictionary mode',
     phraseBadge: 'Phrase / multi-word',
     keywordHint: 'Keywords (click to look one up)',
+    keywordsLookupAction: 'Look this up in the dictionary',
     synonyms: 'Synonyms:',
     antonyms: 'Antonyms:',
     collocations: 'Common collocations',
     register: 'Register',
     etymology: 'Etymology',
     wordFigure: 'Illustration',
+    /**
+     * 查词/翻译失败时的用户侧文案。
+     *
+     * 为什么按 code 分档而不是直接用 error.message：底层消息是技术性的
+     * （"Failed to parse JSON response (length=1339, preview: …)"），
+     * 对用户没有可操作性；技术细节只留在 interruption.detail 里供排查。
+     */
+    errors: {
+      timeout: 'Waiting for the model timed out. Check your network or try another model.',
+      network: 'Network error. Please check your connection and try again.',
+      protocol: 'The response format was unexpected. Please try again or switch models.',
+      incomplete: 'The model stopped before finishing — the result may be incomplete. Please try again.',
+      contentFiltered: 'The content was blocked by the model safety policy. Please reword and try again.',
+      generateFailed: 'Generation failed. Please try again.',
+      invalidApiKey: 'The API key is invalid or not configured. Please check it in settings.',
+      serviceUnavailable: 'The model service is temporarily unavailable (quota / rate limit). Please try again later.',
+    },
   },
 };
 
@@ -99,21 +123,36 @@ export const translateZh: TranslateStrings = {
     styleBusiness: '商务',
     styleCasual: '日常',
     styleSuffix: '风格',
+    styleLabel: '翻译风格',
     sentenceModeBadge: '查句模式',
     copyTranslation: '复制译文',
     export: '导出',
     alignmentHint: '提示：点击（或划选）原文中的词语，译文会同步高亮对应部分；没有对照关系的部分不高亮。',
     relatedTerms: '关联术语',
+    relatedTermsLookup: '关联术语（点击查词）',
+    collocationsLookup: '常用搭配（点击查词）',
+    relatedTermsSearch: '关联术语（点击搜索知识）',
     exportFilePrefix: '翻译-',
     exportStyle: '风格',
     dictModeBadge: '查词模式',
     phraseBadge: '短语 / 多词',
     keywordHint: '关键词（点击可单独查词）',
+    keywordsLookupAction: '在词典中查这个词',
     synonyms: '同义词：',
     antonyms: '反义词：',
     collocations: '常用搭配',
     register: '语域说明',
     etymology: '词源',
     wordFigure: '配图',
+    errors: {
+      timeout: '等待模型响应超时，请检查网络或换用其他模型',
+      network: '网络异常，请检查网络后重试',
+      protocol: '响应数据格式异常，请重试或换用其他模型',
+      incomplete: '模型输出被提前中断，结果可能不完整，请重试',
+      contentFiltered: '内容被模型安全策略拦截，请调整输入后重试',
+      generateFailed: '生成失败，请重试',
+      invalidApiKey: 'API Key 无效或未配置，请在设置里检查',
+      serviceUnavailable: '模型服务暂时不可用（额度或频率限制），请稍后重试',
+    },
   },
 };

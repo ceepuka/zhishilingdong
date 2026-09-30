@@ -256,9 +256,22 @@ src/
 - 源/目标语言**双下拉**（源含"自动检测"，目标默认跟随用户语言，未手改则随设置联动）+ 交换按钮
 - **手动切换**查词模式 / 翻译模式（不自动检测输入内容，避免反直觉）
 - `detect` 只检测**源语言**并判定是否短语（`{ sourceLang, isPhrase, confidence }`），不再推断语言方向
-- 查词模式：音标、词性、释义、例句、同义词/反义词、关联术语、常用搭配、语域、词源；支持**短语/多词**（返回最多 10 个可点击 `keywords`）
-- 翻译模式：原文/译文**逐段对齐**（`segments[{source,target}]`）、风格切换（学术/商务/日常）、关键词、语法说明
-- 选词实时映射（hover 优先于 pinned），对齐不完整时追加剩余文本防丢字
+- 查词模式：音标、词性、释义、例句、同义词/反义词、关联术语、常用搭配、语域、词源；支持**短语/多词**（返回最多 10 个 `keywords`，每项是 `{term, definition}`）
+- 翻译模式：原文/译文**逐段对齐**（`segments[{key,source,target}]`）、关键词、关联术语、语法说明
+- **风格在翻译前选**（`TranslateInput` 顶部的风格选择器，仅翻译模式显示）；结果卡只展示"这次用的是哪种风格"，不提供切换
+- 选词实时映射：**AI 填 `key`，前端按 key 配对高亮**（`modules/translate/alignment.ts`）。配对只用 key，不用数组下标或字符位置 —— 语序可以完全相反（`Good morning → 早上好`，key1 = Good/好、key2 = morning/早上）
+- 两侧渲染**只从 `original` / `translation` 两个权威字符串切区间**，绝不拼接 `segments`（拼接在语序相反时会得到「好早上」，且显示/复制/导出三个出口互相不等）；不变量 `runs.map(r => r.text).join('') === text`，降级只能是「不高亮」，不能是「不显示」
+- **关键词 / 关联术语 / 常用搭配的点击出口**（`components/ui/TermList.tsx` 统一渲染「词 + 一句话释义」）：
+  查词模式三个入口都回到查词（`onLookup`）；翻译模式关键词跳查词、关联术语跳知识搜索（`onSearchTopic`，见 3.3.1）
+- **生成链路与搜索一致**（`generateJSONWithContinuation`，见 10.3）：文本被截断时自动回填续写，不再"少一个字符就整段丢弃"；
+  中断/续写状态透出到 `WordResult` / `SentenceResult`，由 `GenerationNotice` 挂在**结果卡末尾**（词条结果没有边出边渲染，这是用户唯一能知道"这次可能不全"的渠道）
+- **失败文案按 code 分档**：`modules/translate/errorText.ts::friendlyTranslateError(code, raw)`。技术描述（`Failed to parse JSON response (length=…, preview: …)`）
+  只进 `interruption.detail` 与控制台，**绝不上屏**；`catch` 不再静默塞 mock 结果（用户会把 mock 当真实结果读）
+- **Mock 演示数据的硬要求**（`modules/translate/mockData.ts` + `services/mockAIService.ts`）：区块的渲染条件是"数组非空"，
+  所以**数据缺失 = 区块消失**，不是显示成空。因此：① 68 条词条全部带 `collocations` / `relatedTerms`；② 短语词条必须带 `keywords`；
+  ③ 翻译语料没有策展数据就**不给**，不用 `['相关词汇']` / `['语法说明']` 这类占位垃圾顶替（点了会搜出无关内容）；
+  ④ 未收录的词由 `deriveMockFallbackDefinitions()` 按词素给一条**标注了"Demo 降级"**的拆解释义，不编造词义 ——
+  可点击目标天然远多于词表（实测 354 vs 68），靠枚举补不完。全量守卫见 `modules/translate/__tests__/mockLinks.test.ts`
 - 输入上限与计数（查词 120 / 翻译 3000，超长截断提示）
 - TTS 朗读功能（单词发音、句子原文/译文朗读，朗读状态反馈）
 - 生词收藏功能
@@ -266,6 +279,15 @@ src/
 **组件：** TranslateInput, WordResult, SentenceResult
 
 **数据模型：** 见 [4.2 词典翻译数据模型](#42-词典翻译数据模型)
+
+#### 3.3.1 跨模块跳转（翻译 → 知识搜索）
+
+翻译模式的关联术语要能带着词切到知识搜索并发起搜索。**不能用 ref 直接调**：切标签页的那一刻
+`SearchModule` 才是刚挂载，`searchRef.current` 还是 `null`，谁也调不到它。所以：
+
+- `App.tsx` 持有 `pendingSearchTerm`，`handleSearchTopic(term)` = 设值 + 切 tab；
+- 词通过 props 传给 `SearchModule`，由它在挂载后自己消费一次，消费完回调清空；
+- **同一个词只消费一次**（`consumedInitialQueryRef` 守门）—— 否则切走再切回搜索会莫名其妙又搜一遍。
 
 ### 3.4 模块四：文档生成
 
@@ -348,8 +370,8 @@ export interface WordResult {
   isPhrase?: boolean;
   phonetic: string;
   definitions: WordDefinition[];
-  /** 短语/多词查询时 AI 分析出的关键词（最多 10 个），可点击继续查词 */
-  keywords?: string[];
+  /** 短语/多词查询时 AI 分析出的关键词（最多 10 个），带释义、点击跳查词 */
+  keywords?: KeywordEntry[];
   synonyms?: string[];
   antonyms?: string[];
   relatedTerms?: string[];
@@ -364,11 +386,22 @@ export interface SentenceResult {
   style: TranslateStyle;
   sourceLang?: string;
   targetLang?: string;
-  /** 原文/译文逐段对齐（选词实时映射用） */
-  segments?: { source: string; target: string }[];
+  /** 原文/译文逐段对齐（选词实时映射用）。key 是 AI 按原文顺序填的对照编号，见 4.2.1 */
+  segments?: { key?: number; source: string; target: string }[];
   relatedTerms?: string[];
-  keywords?: string[];
+  keywords?: KeywordEntry[];
   grammarNotes?: string[];
+}
+
+/**
+ * 关键词条目：词 / 词组 / 短语 + 一句话释义。
+ * 释义可选 —— 缺了只是少一行字，条目本身绝不消失。
+ * 归一化统一走 `toKeywordEntries()`（components/ui/TermList.tsx）：
+ * AI 可能返回裸字符串，收藏夹读到的旧数据也是裸字符串。
+ */
+export interface KeywordEntry {
+  term: string;
+  definition?: string;
 }
 
 // 语言检测只返回源语言 + 是否短语
@@ -767,6 +800,10 @@ export interface QASession {
 3. `repairTruncatedJSON`：迭代式智能补全（最多10次，每次先补括号尝试解析，失败则从后往前找逗号截断）
 4. 详细诊断日志（包含具体错误消息、首尾 600/300 字符）
 
+> ⚠️ **它只该用在"内容已完整到手、只是格式脏"的场景**。生成类入口一律先经续写链路（10.3）保证内容完整，
+> 再用它兜底；而"写没写完"的判定**必须**用不做修复的 `hasCompleteJSONObject` —— 否则被截断的 JSON 会被
+> `repairTruncatedJSON` 补成合法 JSON，续写链路被静默跳过，用户拿到一份"看起来正常但缺尾巴"的结果。
+
 ### 5.5 AI Prompt 三层优先级
 
 所有生成 prompt 按 **来源（source）→ 内容（content）→ 格式（format）** 三层组织，搜索/问答/查词/翻译/文档各模式 prompt 完全分离，避免相互干扰。
@@ -966,11 +1003,13 @@ SSE chunk ─► sseReader ─► StreamingJSONParser.push(chunk)
 |------|------|
 | `hasCompleteJSONObject(raw)` | **严格**判定首个顶层 JSON 对象是否闭合，**不做修复**（若用带 repair 的 `parseJSONResponse`，截断会被补成合法而静默跳过续写）。实现上复用 `partialJSON.isCompleteJSON`（权威判定，正确追踪 `{}`/`[]` 嵌套 + 字符串转义 + markdown 围栏），不再另写括号配对逻辑 |
 | `buildGenerateCompleteChecker()` | search 续写判定的升级版：**括号闭合 + 核心字段齐全**（`mindMap`/`concepts`/`knowledgeContext`/`examQuestions`/`interestingFacts`）。防止模型输出"括号闭合但缺末尾区块"的 JSON 就收尾、跳过续写导致内容悄悄不完整；可选项（summary/conceptsOverview/examples/relatedResults）不计入，避免空转 |
+| `buildJSONKeysCompleteChecker(keys)` | 同口径的通用版：必填字段由调用方给 —— 查词 `['word','definitions']`、翻译 `['original','translation']`。同样复用解析层 `analyzeJSON`，不另写括号配对 |
+| `generateJSONWithContinuation<T>(…)` | **不需要增量回调的生成入口**（查词 / 翻译）。复用同一个续写循环，返回 `{ data, truncated, continued, attempts, interruption }`；`data === null` 才是"一个字都没解析出来"，由调用方抛 `GenerationInterruptedError` |
 | `callModelStreamWithContinuation(...)` | **中断分类驱动**：每轮结束后用 `isComplete` 判完整；未完整且 `canContinueAfter(kind, …)` 为真则再发一轮。**有内容 → 回填续写**（尾部最多 12k）；**一个字都没有 → 按原 prompt 重发 1 次**（瞬时抖动自愈）。总请求数硬上限 `MAX_GENERATION_ATTEMPTS=3`（首轮 + 至多 2 次续写/重发），绝不无限重试 |
 | 不续写的情形 | `content_filter`（同样的内容会被同样拦下）、`aborted`（用户取消）、`parse`（内容根本不是 JSON，回填无意义）、`http`（鉴权/额度类必然失败；仅"已有内容 + 厂商标记可重试"才重试） |
 | 返回值 | `{ content, truncated, attempts, continued, interruption }`——`interruption` 仅在发生过中断时存在，`resolved=true` 表示最终被续写补全 |
-| 接入点 | `search.generateStream`（用字段齐全判定）/ `followupStream` / `document.generateStream`（用括号闭合判定） |
-| 用户反馈 | `interruption` 落库到 `SearchGenerateResponse` / `DocResult` → UI 用 `GenerationNotice` 按原因分档展示（见 10.7） |
+| 接入点 | `search.generateStream`（字段齐全判定）/ `followupStream` / `document.generateStream`（括号闭合判定）/ **`translate.queryWord` · `translate.queryTranslate`（`generateJSONWithContinuation`，按各自必填字段判定）** |
+| 用户反馈 | `interruption` 落库到 `SearchGenerateResponse` / `DocResult` / `DictionaryQueryResponse` / `TranslateQueryResponse` → UI 用 `GenerationNotice` 按原因分档展示（见 10.7） |
 
 > **注意**：续写提示词的措辞是**中性**的（"你上一条回复在输出中途被中断"），不再写死"因为达到输出长度上限"——中断原因可能是链路断开，给模型错误的上下文会诱导它改变续写策略。
 
@@ -1054,6 +1093,11 @@ SSE chunk ─► sseReader ─► StreamingJSONParser.push(chunk)
 | 只有 `truncated` 布尔（旧数据） | 兼容旧文案 |
 
 **状态机侧**：`toFriendlyError(code, raw)` 覆盖全部中断 code（含 401 / 额度 / 限流 / 5xx 的本地化文案）；失败但已有内容时**保留内容并挂上归因**（横幅说明原因，而非只弹一行错误）；`catch` 分支统一走 `classifyThrown`。
+
+**词典翻译侧**：`modules/translate/errorText.ts::friendlyTranslateError(code, raw)` 是**同一套 code → 语义**映射的另一份文案。
+为什么不复用 `toFriendlyError`：那套假设"已收到内容已在屏幕上"（搜索是流式边出边渲染），
+查词/翻译没有部分渲染，措辞必须不同（"结果可能不完整" vs "生成已中断"），硬套会给出与屏幕不符的提示。
+技术描述（`Failed to parse JSON response (length=…, preview: …)`）**只在 `interruption.detail` 与控制台**，不参与 UI 文案。
 
 ### 10.8 内容渲染一致性：同一份数据只有一套渲染实现
 

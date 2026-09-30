@@ -20,6 +20,7 @@ import type {
   SearchValidateResponse, SearchAnalyzeResponse, SearchGenerateResponse,
   SearchFollowupResponse, StreamSnapshot,
   TranslateDetectResponse, DictionaryQueryResponse, TranslateQueryResponse,
+  KeywordEntry,
   DocumentGenerateResponse, ExportFormat, TranslateStyle, EmailTone, DocType,
   FollowupMessage, MindMapNode, NodeLevel, KnowledgeGraphNode, KnowledgeType,
   Concept, KnowledgeContext, ExamQuestion, InterestingFact,
@@ -144,6 +145,22 @@ export function buildGenerateCompleteChecker() {
     if (!analyzed.complete) return false;    // 括号未闭合 → 肯定没写完
     // 括号闭合了，再校验核心字段是否齐全
     return REQUIRED_GENERATE_KEYS.every((k) => analyzed.completedKeys.includes(k));
+  };
+}
+
+/**
+ * 判定"这份 JSON 已经写完了"：括号闭合 **且** 指定顶层字段都已出现。
+ *
+ * 与 buildGenerateCompleteChecker 同一口径（同样复用解析层 `analyzeJSON`，
+ * 不另写一套括号配对，避免两套判定漂移），只是必填字段由调用方给 ——
+ * 查词要 `word`/`definitions`，翻译要 `original`/`translation`。
+ */
+export function buildJSONKeysCompleteChecker(requiredKeys: string[]) {
+  return (accumulated: string): boolean => {
+    const analyzed = analyzeJSON(accumulated);
+    if (!analyzed) return false;
+    if (!analyzed.complete) return false;
+    return requiredKeys.every((k) => analyzed.completedKeys.includes(k));
   };
 }
 
@@ -288,6 +305,31 @@ const asStr = (v: any): string => (typeof v === 'string' ? v : typeof v === 'num
 const asKey = (v: any): number => {
   const n = typeof v === 'number' ? v : parseInt(String(v ?? ''), 10);
   return Number.isInteger(n) && n > 0 ? n : 0;
+};
+
+/**
+ * 关键词列表归一化。接受 AI 实际会给的两种形态：
+ * ① 期望形态 `{ term, definition }`；② 偷懒形态 —— 裸字符串数组。
+ *
+ * 裸字符串**照收**，只是没有释义（退化成"只有词"）。绝不允许因为
+ * "缺 definition" 就把整条丢掉 —— 那是少显示内容，用户会以为模型没给这个关键词。
+ */
+const toKeywordList = (v: any, limit: number): KeywordEntry[] => {
+  if (!Array.isArray(v)) return [];
+  const out: KeywordEntry[] = [];
+  const seen = new Set<string>();
+  for (const item of v) {
+    const rawTerm = typeof item === 'string' ? item : item?.term ?? item?.word ?? item?.keyword;
+    const term = asStr(rawTerm).trim();
+    if (!term) continue;
+    const dedupeKey = term.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    const definition = (typeof item === 'string' ? '' : asStr(item?.definition ?? item?.meaning ?? item?.gloss)).trim();
+    out.push(definition ? { term, definition } : { term });
+    if (out.length >= limit) break;
+  }
+  return out;
 };
 
 /**
@@ -1086,6 +1128,60 @@ ${tail}
       interruption: lastInterruption
         ? { ...lastInterruption, attempts, continued: attempts > 1, resolved: complete }
         : undefined,
+    };
+  }
+
+  /**
+   * 跑完续写循环后返回最终 JSON（不需要增量渲染的生成入口用这个）。
+   *
+   * 为什么必须存在：查词/翻译原先走的是**非流式** `callModelWithJSON` —— 那条路
+   * 没有续写、没有归因、没有部分内容，模型少写一个字符就变成
+   * `Failed to parse JSON response (length=…, preview: …)` 直接甩到界面上。
+   * 搜索/文档早就换成了 `callModelStreamWithContinuation`，查词/翻译是唯一漏网的生成入口。
+   *
+   * 这里复用**同一个**续写循环（同一个重试预算、同一个 canContinueAfter 判据、
+   * 同一套中断归因），只是不要增量回调 —— 别再另写一套非流式续写，那会变成两套实现漂移。
+   *
+   * @returns data 为空表示"一个字都没解析出来"，由调用方按中断归因抛错
+   */
+  protected async generateJSONWithContinuation<T>(
+    prompt: string,
+    systemPrompt: string | undefined,
+    depth: AIDepth,
+    requiredKeys: string[],
+    signal?: AbortSignal
+  ): Promise<{
+    data: T | null;
+    truncated: boolean;
+    continued: boolean;
+    attempts: number;
+    interruption?: GenerationInterruption;
+  }> {
+    const parser = new StreamingJSONParser<T>();
+    /** 最后一份"能解析出来"的快照：尾部恰好停在半个转义序列上时用它兜底，别把整段结果判死 */
+    let lastRenderable: T | null = null;
+
+    const result = await this.callModelStreamWithContinuation(
+      prompt,
+      systemPrompt,
+      depth,
+      (chunk) => {
+        const snap = parser.push(chunk);
+        if (snap.data) lastRenderable = snap.data as T;
+      },
+      signal,
+      buildJSONKeysCompleteChecker(requiredKeys),
+      (acc) => this.buildJSONContinuationPrompt(acc),
+      MAX_GENERATION_ATTEMPTS
+    );
+
+    const finalSnap = parser.finish();
+    return {
+      data: (finalSnap.data ?? lastRenderable) as T | null,
+      truncated: result.truncated,
+      continued: result.continued,
+      attempts: result.attempts,
+      interruption: result.interruption,
     };
   }
 
@@ -2089,7 +2185,7 @@ ${word}
   "definitions": [
     { "pos": "词性/用法标签", "meaning": "释义（用${tgt}编写）", "example": { "en": "例句原文", "zh": "例句译文（用${tgt}编写）" } }
   ],
-  "keywords": ["关键词1", "..."],
+  "keywords": [{ "term": "关键词1", "definition": "该关键词在${tgt}中的简短释义" }],
   "synonyms": ["近义表达"],
   "antonyms": ["反义表达"],
   "relatedTerms": ["关联术语"],
@@ -2102,13 +2198,26 @@ ${word}
 
 要求：
 1. 释义与例句翻译一律使用${tgt}
-2. isPhrase 为 true（短语/多词）时，必须额外给出 keywords：把该短语/句子拆解为最值得单独学习的**关键词/核心词**（保持源语言原形），**最多 10 个**，按重要性排序；单词查询时 keywords 返回空数组
+2. isPhrase 为 true（短语/多词）时，必须额外给出 keywords：把该短语/句子拆解为最值得单独学习的**关键词/核心词**（term 保持源语言原形），**最多 10 个**，按重要性排序；每一项都要给出 definition —— 用${tgt}写一句话说清该词在这里的意思（**应该**给释义，**而不是**把 definition 留空或照抄 term）；单词查询时 keywords 返回空数组
 3. 例句要地道、贴合真实用法，尽量给出常用搭配
 4. **配图（放宽处理，交给 AI）**：
    - image：能确定一张真实存在、能直接访问的配图直链（实物图/概念图，来自维基百科/Commons/教材官网等可靠来源）时**应该**填写；拿不准时**应该**留空字符串（交给 imageQuery 兜底检索），**而不是**编造 URL
    - imageQuery：无论是否给出 image，都给出 1~2 个最能命中该词条配图的中文或英文检索关键词（例如"苹果 实物图"或"apple fruit"），供程序在拿不到直链时兜底生图/检索；抽象虚词可填空字符串`;
-            const r = await self.callModelWithJSON<DictionaryQueryResponse>(prompt, systemPrompt);
-            const raw = r.data as any;
+            const gen = await self.generateJSONWithContinuation<DictionaryQueryResponse>(
+              prompt,
+              systemPrompt,
+              'medium',
+              ['word', 'definitions']
+            );
+            if (!gen.data) {
+              throw new GenerationInterruptedError(
+                gen.interruption ??
+                  createInterruption('parse', { code: 'GENERATE_FAILED', detail: '模型未返回可解析的词典结果' }),
+                '查词失败：模型没有返回可解析的内容',
+                undefined
+              );
+            }
+            const raw = gen.data as any;
             const defs = Array.isArray(raw?.definitions)
               ? raw.definitions
                   .map((d: any) => ({
@@ -2123,7 +2232,7 @@ ${word}
                   }))
                   .filter((d: any) => d.meaning || d.pos)
               : [];
-            const keywords = toStringList(raw?.keywords).slice(0, 10);
+            const keywords = toKeywordList(raw?.keywords, 10);
             return {
               word: asStr(raw?.word) || word,
               isPhrase: typeof raw?.isPhrase === 'boolean' ? raw.isPhrase : defaultIsPhrase(word),
@@ -2138,6 +2247,11 @@ ${word}
               etymology: asStr(raw?.etymology),
               image: isImageURL(raw?.image) ? raw.image : undefined,
               imageQuery: asStr(raw?.imageQuery ?? raw?.image_query ?? raw?.imageSearch).trim() || undefined,
+              // 中断/续写状态必须透出：词典结果没有"边出边渲染"，用户唯一能知道
+              // "这次可能不全"的渠道就是这个标记（UI 在内容末尾提示，不吞掉半截结果）
+              truncated: gen.truncated || undefined,
+              continued: gen.continued || undefined,
+              interruption: gen.interruption,
             };
           },
           (args: any) => {
@@ -2156,6 +2270,9 @@ ${word}
               etymology: '',
               image: undefined,
               imageQuery: undefined,
+              truncated: undefined,
+              continued: undefined,
+              interruption: undefined,
             };
           },
           'Query word'
@@ -2188,13 +2305,26 @@ ${text}
   · 不同语言的语序可以完全相反，译文的先后顺序**不需要与原文一致**。例如 Good morning → 早上好，应给 key1 = Good/好、key2 = morning/早上（key1 的译文反而排在 key2 后面）——**不要为了顺序好看改写译文**；
   · 粒度要细到词 / 词组 / 短语，通常 3-20 块，**不要整句一块**，否则高亮失去意义；
   · 不便于对照的虚词、标点**不要放进来**（界面上表现为不高亮，属正常）。
-- relatedTerms: 3-5 个关联术语（用${tgt}）
-- keywords: 3-6 个关键词
+- relatedTerms: 3-5 个关联术语（用${tgt}，可点击跳转知识搜索，写术语本身即可）
+- keywords: 3-6 个关键词，每一项是 { "term": 原文里的词/词组, "definition": 该词在${tgt}中的一句话释义 }
 - grammarNotes: 2-3 条语法或选词说明（用${tgt}）
 
-示例：{"original":"Good morning","translation":"早上好","style":"casual","sourceLang":"en","targetLang":"zh","segments":[{"key":1,"source":"Good","target":"好"},{"key":2,"source":"morning","target":"早上"}],"relatedTerms":["greeting"],"keywords":["good","morning"],"grammarNotes":["问候语气"]}`;
-            const r = await self.callModelWithJSON<TranslateQueryResponse>(prompt, systemPrompt);
-            const raw = r.data as any;
+示例：{"original":"Good morning","translation":"早上好","style":"casual","sourceLang":"en","targetLang":"zh","segments":[{"key":1,"source":"Good","target":"好"},{"key":2,"source":"morning","target":"早上"}],"relatedTerms":["greeting"],"keywords":[{"term":"Good","definition":"好的；令人愉快的"},{"term":"morning","definition":"早晨；上午"}],"grammarNotes":["问候语气"]}`;
+            const gen = await self.generateJSONWithContinuation<TranslateQueryResponse>(
+              prompt,
+              systemPrompt,
+              'medium',
+              ['original', 'translation']
+            );
+            if (!gen.data) {
+              throw new GenerationInterruptedError(
+                gen.interruption ??
+                  createInterruption('parse', { code: 'GENERATE_FAILED', detail: '模型未返回可解析的翻译结果' }),
+                '翻译失败：模型没有返回可解析的内容',
+                undefined
+              );
+            }
+            const raw = gen.data as any;
             const segments = Array.isArray(raw?.segments)
               ? raw.segments
                   .map((s: any) => ({ key: asKey(s?.key), source: asStr(s?.source), target: asStr(s?.target) }))
@@ -2211,8 +2341,11 @@ ${text}
               targetLang: tgtCode,
               segments: segments.length > 0 ? segments : undefined,
               relatedTerms: toStringList(raw?.relatedTerms),
-              keywords: toStringList(raw?.keywords),
+              keywords: toKeywordList(raw?.keywords, 6),
               grammarNotes: toStringList(raw?.grammarNotes),
+              truncated: gen.truncated || undefined,
+              continued: gen.continued || undefined,
+              interruption: gen.interruption,
             };
           },
           (args: any) => {
@@ -2228,6 +2361,9 @@ ${text}
               relatedTerms: [],
               keywords: [],
               grammarNotes: [],
+              truncated: undefined,
+              continued: undefined,
+              interruption: undefined,
             };
           },
           'Query translate'

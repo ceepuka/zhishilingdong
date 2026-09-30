@@ -10,11 +10,16 @@ import { useHistory, useViewingHistory } from '../../hooks/HistoryContext';
 import { useLanguage } from '../../hooks/useLanguage';
 import { useStrings } from '../../hooks/useStrings';
 import { aiService } from '../../services/aiServiceProvider';
-import { mockWordResult, mockSentenceResult } from './mockData';
+import { friendlyTranslateError } from './errorText';
 
 interface ModuleRef {
   showFavorite?: (item: FavoriteItem) => void;
   reset?: () => void;
+}
+
+interface TranslateModuleProps {
+  /** 翻译模式点关联术语 → 切换知识搜索并用该术语直接发起搜索（由 App 提供跳转通道） */
+  onSearchTopic?: (term: string) => void;
 }
 
 /** CJK 兜底推断（检测失败时） */
@@ -24,7 +29,7 @@ const guessLang = (text: string): LanguageCode => (/[\u4e00-\u9fff]/.test(text) 
 const avoidSameLanguage = (src: LanguageCode, tgt: LanguageCode): LanguageCode =>
   src === tgt ? (src === 'en' ? 'zh' : 'en') : tgt;
 
-export const TranslateModule = forwardRef<ModuleRef>((_, ref) => {
+export const TranslateModule = forwardRef<ModuleRef, TranslateModuleProps>(({ onSearchTopic }, ref) => {
   const { language: userLanguage } = useLanguage();
   const s = useStrings();
 
@@ -146,7 +151,15 @@ export const TranslateModule = forwardRef<ModuleRef>((_, ref) => {
     setViewingQuery(query);
   };
 
-  const handleTranslate = async (text: string) => {
+  /**
+   * 执行一次查词 / 翻译。
+   *
+   * `modeOverride` 是必需的：点"关键词跳查词"时要**先切模式再查**，而 `setMode` 是异步的，
+   * 同一个 tick 里 `handleTranslate` 读到的还是旧模式 —— 那样点击关键词会变成"再翻一次
+   * 这句译文"，而不是查这个词。所以模式必须由调用方显式传进来，不能靠 state 收敛。
+   */
+  const handleTranslate = async (text: string, modeOverride?: TranslateMode) => {
+    const activeMode = modeOverride ?? mode;
     const trimmedText = text.trim();
     if (!trimmedText) return;
 
@@ -154,21 +167,17 @@ export const TranslateModule = forwardRef<ModuleRef>((_, ref) => {
     setError(null);
 
     try {
-      if (mode === 'dictionary') {
+      if (activeMode === 'dictionary') {
         const src = await resolveSource(trimmedText);
         const response = await aiService.translate.queryWord(trimmedText, src, targetLang);
 
-        if (!response.success) {
-          setError(response.error?.message || s.common.aiKeyRequired);
+        if (!response.success || !response.data) {
+          // 只给可操作的用户文案；技术细节（"Failed to parse JSON response (length=…)"）
+          // 由服务层留在 interruption.detail 与控制台日志里，不上屏
+          setError(friendlyTranslateError(response.error?.code, response.error?.message));
           return;
         }
-        const data = response.data || {
-          ...(mockWordResult[trimmedText.toLowerCase()] || {
-            word: trimmedText,
-            phonetic: '',
-            definitions: [{ pos: '', meaning: s.translate.noResult }],
-          }),
-        };
+        const data = response.data;
         setWordResult(data);
         setSentenceResult(null);
         pushDictHistory(trimmedText, data);
@@ -177,32 +186,19 @@ export const TranslateModule = forwardRef<ModuleRef>((_, ref) => {
         const tgt = avoidSameLanguage(src, targetLang);
         const response = await aiService.translate.queryTranslate(trimmedText, src, tgt, translateStyle);
 
-        if (!response.success) {
-          setError(response.error?.message || s.common.aiKeyRequired);
+        if (!response.success || !response.data) {
+          setError(friendlyTranslateError(response.error?.code, response.error?.message));
           return;
         }
-        const data = response.data || mockSentenceResult(trimmedText, translateStyle);
+        const data = response.data;
         setWordResult(null);
         setSentenceResult(data);
         pushTransHistory(trimmedText, data);
       }
     } catch (err) {
+      // 意外异常也必须说出来：以前这里会静默塞一份 mock 结果，用户会把它当成真实的查词/翻译结果
       console.error('Translate error:', err);
-      if (mode === 'dictionary') {
-        const fallback = mockWordResult[trimmedText.toLowerCase()] || {
-          word: trimmedText,
-          phonetic: '',
-          definitions: [{ pos: '', meaning: s.translate.lookupFailed }],
-        };
-        setWordResult(fallback);
-        setSentenceResult(null);
-        pushDictHistory(trimmedText, fallback);
-      } else {
-        const fallback = mockSentenceResult(trimmedText, translateStyle);
-        setWordResult(null);
-        setSentenceResult(fallback);
-        pushTransHistory(trimmedText, fallback);
-      }
+      setError(friendlyTranslateError(undefined, err instanceof Error ? err.message : String(err)));
     } finally {
       setIsLoading(false);
     }
@@ -212,39 +208,19 @@ export const TranslateModule = forwardRef<ModuleRef>((_, ref) => {
   const handleKeywordLookup = (term: string) => {
     const trimmed = term.trim();
     if (!trimmed) return;
+    // 翻译模式的关键词也跳到查词：模式显式传下去，别指望 setMode 已经生效
+    setMode('dictionary');
     setWordResult(null);
-    void handleTranslate(trimmed);
+    setSentenceResult(null);
+    setViewingQuery(null);
+    void handleTranslate(trimmed, 'dictionary');
   };
 
-  /** 翻译风格切换：用当前结果的源/目标语言重新翻译 */
-  const handleStyleChange = (style: TranslateStyle) => {
-    setTranslateStyle(style);
-    if (!sentenceResult) return;
-    const text = sentenceResult.original.trim();
-    if (!text) return;
-
-    const src: LanguageCode = isLanguageCode(sentenceResult.sourceLang) ? sentenceResult.sourceLang : guessLang(text);
-    const tgt: LanguageCode = isLanguageCode(sentenceResult.targetLang) ? sentenceResult.targetLang : targetLang;
-
-    setIsLoading(true);
-    aiService.translate
-      .queryTranslate(text, src, avoidSameLanguage(src, tgt), style)
-      .then((response) => {
-        if (response.success && response.data) {
-          setSentenceResult(response.data);
-          pushTransHistory(text, response.data);
-        } else {
-          const fallback = mockSentenceResult(text, style);
-          setSentenceResult(fallback);
-          pushTransHistory(text, fallback);
-        }
-      })
-      .catch(() => {
-        const fallback = mockSentenceResult(text, style);
-        setSentenceResult(fallback);
-        pushTransHistory(text, fallback);
-      })
-      .finally(() => setIsLoading(false));
+  /** 关联术语 → 知识搜索（翻译模式）。跳转与发起搜索都由 App 负责 */
+  const handleTermSearch = (term: string) => {
+    const trimmed = term.trim();
+    if (!trimmed) return;
+    onSearchTopic?.(trimmed);
   };
 
   const handleModeChange = (newMode: TranslateMode) => {
@@ -341,6 +317,8 @@ export const TranslateModule = forwardRef<ModuleRef>((_, ref) => {
               onTargetChange={(code) => { targetTouchedRef.current = true; setTargetLang(code); }}
               detectedSource={detectedSource}
               onSwap={handleSwapLanguages}
+              style={translateStyle}
+              onStyleChange={setTranslateStyle}
             />
 
             {isLoading && (
@@ -364,7 +342,11 @@ export const TranslateModule = forwardRef<ModuleRef>((_, ref) => {
               <WordResultComponent result={wordResult} onLookup={handleKeywordLookup} />
             )}
             {!isLoading && !error && sentenceResult && (
-              <SentenceResultComponent result={sentenceResult} onStyleChange={handleStyleChange} />
+              <SentenceResultComponent
+                result={sentenceResult}
+                onLookup={handleKeywordLookup}
+                onSearchTopic={handleTermSearch}
+              />
             )}
           </div>
         </div>

@@ -3,6 +3,8 @@ import { WordResult as WordResultType } from '../../types';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
 import { Tag } from '../../components/ui/Tag';
+import { TermList } from '../../components/ui/TermList';
+import { GenerationNotice } from '../../components/ui/GenerationNotice';
 import { ImageFigure } from '../../components/ui/ImageFigure';
 import { useFavorites } from '../../hooks/useFavorites';
 import { useSpeechSynthesis } from '../../hooks/useSpeechSynthesis';
@@ -108,18 +110,11 @@ export function WordResult({ result, onLookup }: WordResultProps) {
               <h4 className="text-sm font-medium text-slate-500 mb-2">
                 {s.translate.keywordHint}
               </h4>
-              <div className="flex flex-wrap gap-2">
-                {result.keywords.slice(0, 10).map((kw, index) => (
-                  <button
-                    key={index}
-                    type="button"
-                    onClick={() => onLookup?.(kw)}
-                    className="px-2.5 py-1 text-sm rounded-lg bg-teal-50 text-teal-700 border border-teal-100 hover:bg-teal-100 transition-colors"
-                  >
-                    {kw}
-                  </button>
-                ))}
-              </div>
+              <TermList
+                items={result.keywords.slice(0, 10)}
+                onSelect={onLookup}
+                actionLabel={s.translate.keywordsLookupAction}
+              />
             </div>
           )}
           {result.synonyms && (
@@ -136,20 +131,34 @@ export function WordResult({ result, onLookup }: WordResultProps) {
           )}
           {result.relatedTerms && result.relatedTerms.length > 0 && (
             <div className="mt-4 pt-4 border-t border-slate-100">
-              <h4 className="text-sm font-medium text-slate-500 mb-2">{s.translate.relatedTerms}</h4>
+              <h4 className="text-sm font-medium text-slate-500 mb-2">{s.translate.relatedTermsLookup}</h4>
               <div className="flex flex-wrap gap-2">
                 {result.relatedTerms.map((term, index) => (
-                  <Tag key={index} variant="primary">{term}</Tag>
+                  <Tag
+                    key={index}
+                    variant="primary"
+                    onClick={onLookup ? () => onLookup(term) : undefined}
+                    title={onLookup ? s.translate.keywordsLookupAction : undefined}
+                  >
+                    {term}
+                  </Tag>
                 ))}
               </div>
             </div>
           )}
           {result.collocations && result.collocations.length > 0 && (
             <div className="mt-4 pt-4 border-t border-slate-100">
-              <h4 className="text-sm font-medium text-slate-500 mb-2">{s.translate.collocations}</h4>
+              <h4 className="text-sm font-medium text-slate-500 mb-2">{s.translate.collocationsLookup}</h4>
               <div className="flex flex-wrap gap-2">
                 {result.collocations.map((collocation, index) => (
-                  <Tag key={index} variant="default">{collocation}</Tag>
+                  <Tag
+                    key={index}
+                    variant="default"
+                    onClick={onLookup ? () => onLookup(collocation) : undefined}
+                    title={onLookup ? s.translate.keywordsLookupAction : undefined}
+                  >
+                    {collocation}
+                  </Tag>
                 ))}
               </div>
             </div>
@@ -170,6 +179,14 @@ export function WordResult({ result, onLookup }: WordResultProps) {
           )}
         </div>
       </div>
+
+      {/* 中断/续写提示必须在**内容末尾**：词条结果没有边出边渲染，
+          用户唯一的"这次可能不全"提示只能来自这里，放前面等于先报错再看内容 */}
+      {result.interruption || result.truncated || result.continued ? (
+        <div className="mt-4">
+          <GenerationNotice data={result} />
+        </div>
+      ) : null}
     </Card>
   );
 }

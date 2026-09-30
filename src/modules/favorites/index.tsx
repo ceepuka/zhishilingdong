@@ -7,6 +7,7 @@ import { KnowledgeContentView, isGeneratedKnowledge } from '../../components/kno
 import { LatexText } from '../../components/ui/LatexText';
 import { MarkdownContent } from '../../components/ui/MarkdownContent';
 import { GenerationNotice, type GenerationNoticeData } from '../../components/ui/GenerationNotice';
+import { TermList } from '../../components/ui/TermList';
 
 interface FavoritesModuleRef {
   showFavorite?: (item: FavoriteItem) => void;
@@ -262,13 +263,7 @@ export const FavoritesModule = forwardRef<FavoritesModuleRef>((_, __) => {
               {Array.isArray(data.keywords) && data.keywords.length > 0 && (
                 <div>
                   <h3 className="text-sm font-semibold text-slate-500 dark:text-zinc-400 mb-2">{s.favorites.keywords}</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {data.keywords.map((kw, index) => (
-                      <span key={index} className="px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400 text-sm rounded-lg">
-                        <LatexText text={String(kw)} />
-                      </span>
-                    ))}
-                  </div>
+                  <TermList items={data.keywords as (string | { term: string; definition?: string })[]} />
                 </div>
               )}
               {Array.isArray(data.relatedTerms) && data.relatedTerms.length > 0 && (

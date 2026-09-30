@@ -173,6 +173,20 @@ export interface TranslationSegment {
   target: string;
 }
 
+/**
+ * 关键词条目：词/词组/短语 + 一句话释义。
+ *
+ * 带释义是为了让"关键词"直接可读 —— 用户不必逐个点进去才知道是什么。
+ * 释义**始终是可选**的：AI 没给（或给的是裸字符串）时退化成"只有词"，
+ * 绝不因此丢掉这一条（丢条目 = 少显示内容，不可接受）。
+ */
+export interface KeywordEntry {
+  /** 词 / 词组 / 短语（保持源语言原形） */
+  term: string;
+  /** 一句话释义（用目标语言编写），缺失时 UI 只显示词 */
+  definition?: string;
+}
+
 export interface DictionaryQueryResponse {
   word: string;
   /** 输入是否为短语/多词 */
@@ -187,7 +201,7 @@ export interface DictionaryQueryResponse {
     };
   }[];
   /** 短语/多词查询时，AI 分析出的关键词（最多 10 个），可点击继续查词 */
-  keywords?: string[];
+  keywords?: KeywordEntry[];
   synonyms?: string[];
   antonyms?: string[];
   relatedTerms?: string[];
@@ -198,6 +212,12 @@ export interface DictionaryQueryResponse {
   image?: string;
   /** 配图检索关键词（供生图服务/图库兜底，语言由 AI 决定） */
   imageQuery?: string;
+  /** 结果可能不完整（达到续写次数上限仍未补全），由 UI 在内容末尾提示 */
+  truncated?: boolean;
+  /** 本次生成触发过自动续写/重发 */
+  continued?: boolean;
+  /** 中断归因（模型输出上限 / 网络中断 / 超时 / 安全策略…） */
+  interruption?: GenerationInterruption;
 }
 
 export interface TranslateQueryResponse {
@@ -211,8 +231,14 @@ export interface TranslateQueryResponse {
   /** 逐段对齐，用于原文↔译文选词实时映射 */
   segments?: TranslationSegment[];
   relatedTerms?: string[];
-  keywords?: string[];
+  keywords?: KeywordEntry[];
   grammarNotes?: string[];
+  /** 结果可能不完整（达到续写次数上限仍未补全），由 UI 在内容末尾提示 */
+  truncated?: boolean;
+  /** 本次生成触发过自动续写/重发 */
+  continued?: boolean;
+  /** 中断归因（模型输出上限 / 网络中断 / 超时 / 安全策略…） */
+  interruption?: GenerationInterruption;
 }
 
 export interface DocumentGenerateResponse {

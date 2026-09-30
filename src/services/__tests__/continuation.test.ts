@@ -1,5 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { hasCompleteJSONObject, MAX_GENERATION_ATTEMPTS, BaseAIProvider, buildGenerateCompleteChecker } from '../baseAIProvider';
+import {
+  hasCompleteJSONObject,
+  MAX_GENERATION_ATTEMPTS,
+  BaseAIProvider,
+  buildGenerateCompleteChecker,
+  buildJSONKeysCompleteChecker,
+} from '../baseAIProvider';
 import { StreamTimeoutError, StreamNetworkError, StreamAbortedError } from '../streaming/sseReader';
 
 /**
@@ -355,6 +361,154 @@ describe('callModelStreamWithContinuation — 全链路中断续写与归因', (
     const r = await run(provider);
     expect(r.interruption).toBeUndefined();
     expect(r.continued).toBe(false);
+  });
+});
+
+/**
+ * 查词 / 翻译的续写补全契约（bug 回归）。
+ *
+ * 旧行为：这两个入口是全项目唯一还走**非流式** `callModelWithJSON` 的生成路径 ——
+ * 模型少写一个字符（示例里 preview 停在 `"en":"Th`），整段结果就被丢弃，
+ * 界面直接显示 `Failed to parse JSON response (length=1339, preview: {...})`。
+ *
+ * 新行为：接入**同一个**续写循环（同一重试预算、同一 canContinueAfter 判据、
+ * 同一套中断归因）；确实补不回来时，由调用方按中断 code 出可操作文案，
+ * 不再把解析层的技术细节当用户文案。
+ */
+describe('buildJSONKeysCompleteChecker — 按顶层字段判定"写完了"', () => {
+  const check = buildJSONKeysCompleteChecker(['word', 'definitions']);
+
+  it('括号闭合且指定字段齐全 → true', () => {
+    expect(check('{"word":"hello","isPhrase":false,"definitions":[{"pos":"n","meaning":"问候"}]}')).toBe(true);
+  });
+
+  it('括号闭合但缺 definitions → false（否则释义会悄悄没有）', () => {
+    expect(check('{"word":"hello","isPhrase":false}')).toBe(false);
+  });
+
+  it('括号未闭合 → false（哪怕 word 已经到了）', () => {
+    expect(check('{"word":"hello","definitions":[{"pos":"n","meaning":"问候"')).toBe(false);
+  });
+
+  it('空数组也算齐全（definitions:[] 是合法结果，不该空转续写）', () => {
+    expect(check('{"word":"hello","definitions":[]}')).toBe(true);
+  });
+
+  it('markdown 围栏包裹 → true', () => {
+    expect(check('```json\n{"word":"hello","definitions":[]}\n```')).toBe(true);
+  });
+
+  it('完全没有 JSON 起始符 → false（不抛错）', () => {
+    expect(check('抱歉，我无法完成这次查词')).toBe(false);
+    expect(check('')).toBe(false);
+  });
+
+  it('翻译的必填字段是 original / translation', () => {
+    const t = buildJSONKeysCompleteChecker(['original', 'translation']);
+    expect(t('{"original":"Good morning","translation":"早上好"}')).toBe(true);
+    expect(t('{"original":"Good morning"}')).toBe(false);
+  });
+});
+
+describe('generateJSONWithContinuation — 查词/翻译的续写补全', () => {
+  type StreamResult = { content: string; model: string; latencyMs: number; streamed: boolean; truncated: boolean };
+
+  /** 按轮次返回结果的 provider；轮次用尽后重复返回最后一轮 */
+  function makeProvider(rounds: Array<StreamResult | Error>) {
+    let call = 0;
+    const prompts: string[] = [];
+    const provider = new (class extends BaseAIProvider {
+      protected getProviderId(): string { return 'test'; }
+      protected async callModelStream(
+        prompt: string,
+        _systemPrompt: string | undefined,
+        _depth: any,
+        onDelta: (chunk: string) => void,
+        _signal?: AbortSignal,
+        _onReasoning?: (chunk: string) => void
+      ): Promise<StreamResult> {
+        prompts.push(prompt);
+        const item = rounds[Math.min(call, rounds.length - 1)];
+        call++;
+        if (item instanceof Error) throw item;
+        if (item.content) onDelta(item.content);
+        return item;
+      }
+    })();
+    return { provider, prompts };
+  }
+
+  const ok = (content: string): StreamResult => ({ content, model: 'm', latencyMs: 1, streamed: true, truncated: false });
+  const empty = (): StreamResult => ({ content: '', model: 'm', latencyMs: 1, streamed: false, truncated: false });
+
+  const runWord = (provider: BaseAIProvider) =>
+    (provider as any).generateJSONWithContinuation('查词prompt', undefined, 'medium', ['word', 'definitions']);
+
+  it('首轮就完整 → 不续写（attempts=1），data 可直接用', async () => {
+    const { provider } = makeProvider([
+      ok('{"word":"hello","isPhrase":false,"definitions":[{"pos":"n","meaning":"问候"}]}'),
+    ]);
+    const r = await runWord(provider);
+    expect(r.attempts).toBe(1);
+    expect(r.continued).toBe(false);
+    expect(r.truncated).toBe(false);
+    expect(r.data.word).toBe('hello');
+    expect(r.data.definitions).toHaveLength(1);
+    expect(r.interruption).toBeUndefined();
+  });
+
+  it('首轮被截断（本次 bug 的原始形态）→ 续写补齐，拿到完整 data', async () => {
+    // 首轮停在半个字符串上：旧实现会整段丢弃并甩 "Failed to parse JSON response (length=…)"
+    const { provider, prompts } = makeProvider([
+      ok('{"word":"respond well to","isPhrase":true,"definitions":[{"pos":"phrase","meaning":"对……反应良好","example":{"en":"The patient did not respond'),
+      ok(' well to the treatment.","zh":"该患者对初步治疗反应不佳。"}}]}'),
+    ]);
+    const r = await runWord(provider);
+    expect(r.attempts).toBe(2);
+    expect(r.continued).toBe(true);
+    expect(r.truncated).toBe(false);
+    expect(r.data.word).toBe('respond well to');
+    expect(r.data.definitions[0].example.en).toContain('did not respond well to the treatment');
+    // 第二轮必须是"回填续写"，而不是重发原 prompt
+    expect(prompts[1]).not.toBe('查词prompt');
+    expect(prompts[1]).toContain('respond well to');
+  });
+
+  it('续写也补不回来 → 仍给可渲染的部分 data + 归因（不再整体丢弃）', async () => {
+    const { provider } = makeProvider([
+      ok('{"word":"respond well to","isPhrase":true,"definitions":[{"pos":"phrase","meaning":"对……反应良好"'),
+      empty(),
+    ]);
+    const r = await runWord(provider);
+    expect(r.truncated).toBe(true);
+    // 关键：已到手的内容必须能渲染（否则用户看到的是"什么都没发生"）
+    expect(r.data.word).toBe('respond well to');
+    expect(r.interruption).toBeTruthy();
+    expect(r.interruption.resolved).toBe(false);
+    expect(r.attempts).toBe(2); // 续写轮空内容 → 立即收手，不空转
+  });
+
+  it('全程没有 JSON（模型跑题/拒答）→ data 为 null 且带 interruption，由调用方按 code 出文案', async () => {
+    const { provider } = makeProvider([ok('抱歉，我无法完成这次查词')]);
+    const r = await runWord(provider);
+    expect(r.data).toBeNull();
+    expect(r.truncated).toBe(true);
+    expect(r.interruption).toBeTruthy();
+    expect(r.attempts).toBe(MAX_GENERATION_ATTEMPTS);
+  });
+
+  it('翻译同样走这条链路（original / translation 必填）', async () => {
+    const { provider } = makeProvider([
+      ok('{"original":"Good morning","translation":"早上好","segments":[{"key":"1"'),
+      ok(',"original":"Good","translation":"好"}]}'),
+    ]);
+    const r = await (provider as any).generateJSONWithContinuation(
+      '翻译prompt', undefined, 'medium', ['original', 'translation']
+    );
+    expect(r.continued).toBe(true);
+    expect(r.truncated).toBe(false);
+    expect(r.data.original).toBe('Good morning');
+    expect(r.data.segments).toHaveLength(1);
   });
 });
 

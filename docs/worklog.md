@@ -6,6 +6,118 @@
 
 ---
 
+## 2026-09-30（补充 Mock 演示数据 + 全量守卫 + 发布 v1.7.2）
+
+**任务类型**：开发任务 / 发布任务
+
+**第1步 先量化缺口（不靠感觉补）**
+- 统计 `mockWordResult`：58 条词条、`collocations` **0**、`relatedTerms` 15、短语词条 **0**；翻译 mock 里是 `['相关词汇']` / `['语法说明']` 占位垃圾；`mockSentenceResult` 无任何引用（死代码）。
+- 结论：三个可点击区块里，**常用搭配在 Mock 下永不出现**，短语查询只会看到"暂无该单词的释义"。
+
+**第2步 补数据（按"演示时看得见"排序）**
+- 新增 9 条短语词条（含复刻用户报错原文的 `respond well to`）：`isPhrase` + `keywords` + `relatedTerms` + `collocations`。
+- 新增 `mockExtra` 表 + 合并循环，为 68 条词条补齐 `collocations` / `relatedTerms`，**已有值优先**。
+- `mockMiniGlossary` 扩到 130+ 条；新增 `deriveMockKeywords()`（按词表拆词 + 释义，查不到释义的词不返回）。
+- 新增 `mockSentenceExtras`（10 条策展语料）；`queryTranslate` 改为语料表驱动，`tokens` 按**原文词序**配 key，没数据就不给相关术语/语法说明。
+- 删除死代码 `mockSentenceResult` 及随之未用的 `SentenceResult` import（`tsc` 报 TS6133 后修正）。
+
+**第3步 补可点击目标（本次最关键）**
+- 审计发现目标词远多于词表：354 个唯一目标词 vs 68 条词条，其中关联术语 104/243、常用搭配 240/247 落到空词条。
+- 新增 `deriveMockFallbackDefinitions()`：未收录时按词素拆解给一条**标注了降级**的释义（不编造词义），一个词素都查不到则如实"暂无"。
+- 补完词素后复审计：**354 个目标词，落空 0**。
+
+**第4步 全量守卫测试**
+- 新建 `src/modules/translate/__tests__/mockLinks.test.ts`：遍历全部目标词走真实 `queryWord()`，用 `vi.useFakeTimers()` + `advanceTimersByTimeAsync(400)` 跳过 mock 的 `delay(300)`。
+- 该测试立刻抓到漏网词 `agent`（关键词里有定义，但点下去查不到）→ 补进词表。3 例全绿。
+
+**第5步 验证**
+- `tsc --noEmit` 零错误；vitest **383 例 / 34 文件全绿**（首次全量跑出现 2 个文件因沙箱 fs-shim EPERM 漏收集，单独重跑确认 61 例全过）。
+- 真实浏览器探针 `~/.workbuddy/tmp/probe-mock-v172.cjs`（21 项断言全过，0 console error / 0 pageerror）：查词 `algorithm` 的常用搭配/关联术语出现且点击有真实释义；短语 `good morning` 的徽标/关键词/搭配齐备；翻译 `good morning` 的译文片段 DOM 顺序为 `[2,1]`（语序相反按 key 配对）、关联术语点击切 `#search` 并产生搜索记录。
+
+**第6步 发布 v1.7.2**
+- `package.json` `1.7.1` → `1.7.2`；`docs/versions.md` 新增 v1.7.2 条目；README 版本表；`docs/progress.md`（m041/m042 + 版本进度）；`docs/todo.md` 当前状态与已完成版本表。
+- `npm run release` → `release/知识灵动助手.html` + `使用说明.txt`（产物不入库）。
+- commit + push `main` → tag `v1.7.2` → `GH_TOKEN=<token> npm run release:publish`（附件名 ASCII，中文名放 `label`）。
+- 匿名走 `api.github.com` 的 asset 端点验证附件可下载。
+
+---
+
+## 2026-09-30（跳转查词报 "Failed to parse JSON response"：查词/翻译接入统一续写链路）
+
+**任务类型**：Bug修复
+
+**第1步 定位真因**
+- 用户贴出报错：`Failed to parse JSON response (length=1339, preview: {"word":"respond well to",…`（JSON 被截断）。
+- 全仓排查发现：查词 / 翻译是全项目**唯一还走非流式 `callModelWithJSON`** 的生成入口 ——
+  没有续写、没有中断归因、没有部分内容；模型少写一个字符，`parseJSONResponse` 补不回来就返回 `null`，
+  于是**解析层的技术描述被当成用户文案**上屏。
+
+**第2步 接入统一续写链路（不另写第二套实现）**
+- 新增 `buildJSONKeysCompleteChecker(requiredKeys)`（复用解析层 `analyzeJSON`，与 `buildGenerateCompleteChecker` 同口径）。
+- 新增 `generateJSONWithContinuation<T>()`：复用**同一个** `callModelStreamWithContinuation`（同一重试预算 / 同一 `canContinueAfter` / 同一套归因），只是不需要增量回调。
+- `queryWord` / `queryTranslate` 切换过去，必填字段分别为 `['word','definitions']` 与 `['original','translation']`。
+
+**第3步 状态透出与文案分档**
+- 4 处接口（`DictionaryQueryResponse` / `TranslateQueryResponse` / `WordResult` / `SentenceResult`）新增 `truncated` / `continued` / `interruption`；
+  `WordResult` / `SentenceResult` 在**结果卡末尾**挂 `GenerationNotice`。
+- 新建 `modules/translate/errorText.ts`；`translate.errors` 补 8 条中英文案；删除 `catch` 里的 mock 兜底（会误导用户）。
+
+**第4步 测试**
+- `src/services/__tests__/continuation.test.ts` 新增 12 例：`buildJSONKeysCompleteChecker` 7 例 + `generateJSONWithContinuation` 5 例
+  （含"首轮停在半个字符串 → 续写补齐"的本次 bug 形态回归、以及"全程无 JSON → data=null + interruption"）。
+- 单跑该文件 40 例全绿；全量 **380 例 / 33 文件全绿**；`tsc --noEmit` 零错误。
+
+**第5步 真实浏览器取证**
+- 新探针 `~/.workbuddy/tmp/probe-translate-truncation.cjs`：**拦截 AI 端点**模拟"模型只写了一半"，8 项断言全过。
+  - 场景 A：第 1 轮 SSE 只吐半截 JSON → 自动第 2 次请求补齐 → **只在第 2 轮才有的**第 2 条释义/例句译文出现在屏幕上；提示为 teal「已自动续写并补全」，无报错卡，无技术细节。
+  - 场景 B：3 轮都吐不出 JSON → 3 次请求后放弃，界面显示「模型输出被提前中断，结果可能不完整，请重试」；全文不含 `Failed to parse JSON` / `preview:`。
+
+**踩坑记录**
+- **探针分流条件写错会让结论完全反过来**：续写轮的 prompt 是 `buildJSONContinuationPrompt(已生成内容)`，**不含原始 prompt**；
+  按 `body.includes('definitions')` 分流会把续写轮当成语言检测的旁路调用，喂回一份无关的完整 JSON ——
+  场景 B 因此一度"没有报错"。分流条件必须同时认**原始 prompt 特征**与**续写提示词特征**（`已生成内容开始`）。
+- 沙箱里 vitest 输出过管道会被 shim 吃掉，本次改为重定向到文件再用 `node -e` 过滤。
+
+---
+
+## 2026-09-30（翻译对照改 key 配对 + 关键词带释义与跨模块跳转）
+
+**任务类型**：需求变更 + 功能开发 + 测试验证
+
+**第1步 触发与澄清**
+- 用户先报"翻译高亮对照语序不对"。第一版按字符位置单调游标扫描改完后，用户用 `Good morning → 早上好` 反例否掉，
+  并给出正确模型：**双射键值对，AI 填键，前端按相同标记高亮，不便对照的"无键"**。
+- 第二轮需求：查词模式的关键词/关联术语/常用搭配点击跳查词；翻译模式风格选择前移、关联术语跳知识搜索、关键词带释义。
+- 澄清两次（`批量查词` 在代码与文档中都不存在 → 用户确认指"查词和翻译的关键词都要释义、都跳转查词"；关键词样式 → "需要释义，但不要照搬截图"）。
+- 约束：**先不发新版本**，翻译/查词不做旧数据兼容。
+
+**第2步 对照模型改 key 配对**
+- 新增 `alignment.ts`：`normalizeKey` / `findFragment` / `collectRanges`（**结果按字符位置排序**）/ `sharedKeys` / `buildRuns`。
+- 渲染铁律：屏幕文字只从 `original` / `translation` 切区间，不变量 `runs.map(r => r.text).join('') === text`；无键只"不高亮"，不"不显示"。
+- 划选定位改读锚点 `data-key`（文本搜索在同名文字出现多次时永远命中第一处）。
+
+**第3步 关键词模型 + UI**
+- `KeywordEntry { term, definition? }` 贯通类型 → prompt → sanitize → UI；`toKeywordList()` 同时吃对象与裸字符串。
+- 新组件 `TermList`（"词 + 一句话释义"）+ `toKeywordEntries()`；`Tag` 改为"传了 onClick 才是按钮"。
+
+**第4步 风格前移与跨模块跳转**
+- 风格选择器移入 `TranslateInput`（仅翻译模式）；结果卡只展示本次用的风格，改风格不再自动重翻。
+- `App.tsx` 加 `pendingSearchTerm` + `handleSearchTopic`；`SearchModule` 新增 `initialQuery` / `onInitialQueryConsumed`，挂载后消费一次。
+
+**第5步 验证**
+- `tsc --noEmit` 零错误；测试 **368 例 / 33 文件全绿**（全量 32 文件 347 例 + 沙箱 EPERM 漏收集的文件单跑 21 例）。
+- 真实浏览器探针 `~/.workbuddy/tmp/probe-translate-keyword-ux.cjs`（Mock 模式）12 项断言全过、0 console error。
+
+**踩坑记录**
+- **`setState` 之后立刻调读同一 state 的函数读到旧值**：点关键词跳查词时先 `setMode('dictionary')` 再 `handleTranslate()`，
+  闭包里还是 `'translate'` → 会变成"再翻一次这句"。修法是 `handleTranslate(text, modeOverride?)` **显式传模式**。
+- **切标签页那一刻目标模块才挂载，ref 必为 null** → 跨模块带参跳转只能"交给目标模块自己消费"，且必须**只消费一次**。
+- 全量 vitest 少收集一个文件（`Tests` 通过但 `Test Files` 少一）仍是沙箱 fs-shim EPERM 的老问题，**单跑该文件确认**，别当成真失败。
+
+---
+
+
+
 ## 2026-09-29（转公开：密钥体检 → 新建公开仓库 → 重建 Release）
 
 **任务类型**：发布任务（公开分发 + 仓库历史处理）

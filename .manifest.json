@@ -5,8 +5,8 @@
             "size": 1946
         },
         "docs/architecture.md": {
-            "lastModified": "2026-09-29T10:37:27",
-            "size": 54030
+            "lastModified": "2026-09-29T11:22:06",
+            "size": 54481
         },
         "docs/content-quality.md": {
             "lastModified": "2026-07-14T13:33:01",
@@ -21,16 +21,12 @@
             "size": 7984
         },
         "docs/design.md": {
-            "lastModified": "2026-09-15T13:52:38",
-            "size": 77168
+            "lastModified": "2026-09-30T14:38:24",
+            "size": 82447
         },
         "docs/external/README.md": {
-            "lastModified": "2026-07-14T13:47:21",
-            "size": 987
-        },
-        "docs/external/Session ID.txt": {
-            "lastModified": "2026-07-14T16:01:52",
-            "size": 6932
+            "lastModified": "2026-09-29T10:58:15",
+            "size": 1051
         },
         "docs/external/log3.PNG": {
             "lastModified": "2026-07-05T21:15:14",
@@ -93,8 +89,8 @@
             "size": 8391
         },
         "docs/history.md": {
-            "lastModified": "2026-09-29T10:37:41",
-            "size": 228067
+            "lastModified": "2026-09-30T14:37:43",
+            "size": 252425
         },
         "docs/issues.md": {
             "lastModified": "2026-09-20T13:57:57",
@@ -169,12 +165,12 @@
             "size": 1948
         },
         "docs/prd.md": {
-            "lastModified": "2026-09-10T20:39:28",
-            "size": 25787
+            "lastModified": "2026-09-30T12:23:58",
+            "size": 27140
         },
         "docs/progress.md": {
-            "lastModified": "2026-09-20T13:58:39",
-            "size": 58863
+            "lastModified": "2026-09-30T14:37:12",
+            "size": 60609
         },
         "docs/project-document-manager.md": {
             "lastModified": "2026-09-12T14:12:43",
@@ -237,40 +233,40 @@
             "size": 118211
         },
         "docs/todo.md": {
-            "lastModified": "2026-09-29T10:37:49",
-            "size": 6551
+            "lastModified": "2026-09-30T14:37:31",
+            "size": 8138
         },
         "docs/versions.md": {
-            "lastModified": "2026-09-29T10:37:18",
-            "size": 40251
+            "lastModified": "2026-09-30T14:36:41",
+            "size": 45625
         },
         "docs/workflow-manager.md": {
             "lastModified": "2026-09-04T08:47:49",
             "size": 7786
         },
         "docs/worklog.md": {
-            "lastModified": "2026-09-29T10:37:49",
-            "size": 163872
+            "lastModified": "2026-09-30T14:37:58",
+            "size": 177237
         },
         "scripts/build-manifest.js": {
             "lastModified": "2026-09-11T14:26:55",
             "size": 1795
         },
         "scripts/build-standalone.js": {
-            "lastModified": "2026-09-29T10:15:31",
-            "size": 13237
+            "lastModified": "2026-09-29T11:07:07",
+            "size": 13217
         },
         "scripts/publish-release.mjs": {
-            "lastModified": "2026-09-29T10:47:42",
-            "size": 6456
+            "lastModified": "2026-09-29T11:07:06",
+            "size": 6436
         },
         "scripts/smoke-test.ts": {
             "lastModified": "2026-09-04T16:59:18",
             "size": 21406
         },
         "src/App.tsx": {
-            "lastModified": "2026-09-14T13:41:31",
-            "size": 3743
+            "lastModified": "2026-09-30T12:15:14",
+            "size": 4800
         },
         "src/components/cards/CompareCard.tsx": {
             "lastModified": "2026-07-14T14:51:13",
@@ -381,8 +377,12 @@
             "size": 1683
         },
         "src/components/ui/Tag.tsx": {
-            "lastModified": "2026-07-14T14:51:13",
-            "size": 807
+            "lastModified": "2026-09-30T12:13:23",
+            "size": 1201
+        },
+        "src/components/ui/TermList.tsx": {
+            "lastModified": "2026-09-30T12:16:49",
+            "size": 3389
         },
         "src/components/ui/__tests__/generationNotice.test.tsx": {
             "lastModified": "2026-09-15T11:37:29",
@@ -497,8 +497,8 @@
             "size": 8954
         },
         "src/i18n/strings/translate.ts": {
-            "lastModified": "2026-09-11T08:18:53",
-            "size": 4587
+            "lastModified": "2026-09-30T13:02:07",
+            "size": 7115
         },
         "src/main.tsx": {
             "lastModified": "2026-07-14T13:47:27",
@@ -533,8 +533,8 @@
             "size": 8823
         },
         "src/modules/favorites/index.tsx": {
-            "lastModified": "2026-09-20T10:16:39",
-            "size": 22007
+            "lastModified": "2026-09-30T12:16:58",
+            "size": 21775
         },
         "src/modules/search/KnowledgeGraph.tsx": {
             "lastModified": "2026-09-10T19:25:56",
@@ -551,6 +551,10 @@
         "src/modules/search/__tests__/mindmapDescSize.test.ts": {
             "lastModified": "2026-09-10T13:08:48",
             "size": 3948
+        },
+        "src/modules/search/__tests__/searchInitialQuery.test.tsx": {
+            "lastModified": "2026-09-30T12:17:49",
+            "size": 3344
         },
         "src/modules/search/__tests__/searchModeSwitch.test.tsx": {
             "lastModified": "2026-09-20T11:40:00",
@@ -593,8 +597,8 @@
             "size": 6353
         },
         "src/modules/search/index.tsx": {
-            "lastModified": "2026-09-20T11:40:40",
-            "size": 13657
+            "lastModified": "2026-09-30T12:15:24",
+            "size": 14670
         },
         "src/modules/search/mockData.ts": {
             "lastModified": "2026-09-10T10:13:15",
@@ -609,44 +613,64 @@
             "size": 23045
         },
         "src/modules/translate/SentenceResult.tsx": {
-            "lastModified": "2026-09-10T18:34:52",
-            "size": 12438
+            "lastModified": "2026-09-30T13:01:31",
+            "size": 14290
         },
         "src/modules/translate/TranslateInput.tsx": {
-            "lastModified": "2026-09-10T18:33:21",
-            "size": 7907
+            "lastModified": "2026-09-30T12:14:15",
+            "size": 9703
         },
         "src/modules/translate/WordResult.tsx": {
-            "lastModified": "2026-09-11T08:19:01",
-            "size": 7747
+            "lastModified": "2026-09-30T13:01:18",
+            "size": 8465
+        },
+        "src/modules/translate/__tests__/alignment.test.tsx": {
+            "lastModified": "2026-09-30T12:17:10",
+            "size": 9247
         },
         "src/modules/translate/__tests__/constants.test.ts": {
             "lastModified": "2026-09-10T13:57:05",
             "size": 798
         },
+        "src/modules/translate/__tests__/keywordTerms.test.tsx": {
+            "lastModified": "2026-09-30T12:17:42",
+            "size": 8511
+        },
+        "src/modules/translate/__tests__/mockLinks.test.ts": {
+            "lastModified": "2026-09-30T14:31:59",
+            "size": 2478
+        },
         "src/modules/translate/__tests__/translateService.test.ts": {
-            "lastModified": "2026-09-10T13:58:02",
-            "size": 1654
+            "lastModified": "2026-09-30T11:19:19",
+            "size": 2105
+        },
+        "src/modules/translate/alignment.ts": {
+            "lastModified": "2026-09-30T11:16:50",
+            "size": 5020
         },
         "src/modules/translate/constants.ts": {
             "lastModified": "2026-09-10T13:53:49",
             "size": 698
         },
+        "src/modules/translate/errorText.ts": {
+            "lastModified": "2026-09-30T13:02:15",
+            "size": 1833
+        },
         "src/modules/translate/index.tsx": {
-            "lastModified": "2026-09-20T07:32:52",
-            "size": 15816
+            "lastModified": "2026-09-30T13:02:44",
+            "size": 15638
         },
         "src/modules/translate/mockData.ts": {
-            "lastModified": "2026-09-11T08:18:43",
-            "size": 39368
+            "lastModified": "2026-09-30T14:08:53",
+            "size": 52303
         },
         "src/services/__tests__/baseAIProvider.test.ts": {
             "lastModified": "2026-09-13T13:21:57",
             "size": 22509
         },
         "src/services/__tests__/continuation.test.ts": {
-            "lastModified": "2026-09-15T11:38:49",
-            "size": 15511
+            "lastModified": "2026-09-30T13:09:51",
+            "size": 22359
         },
         "src/services/__tests__/disableThinking.test.ts": {
             "lastModified": "2026-09-12T13:22:48",
@@ -669,16 +693,16 @@
             "size": 5918
         },
         "src/services/baseAIProvider.ts": {
-            "lastModified": "2026-09-20T10:15:07",
-            "size": 128492
+            "lastModified": "2026-09-30T13:03:45",
+            "size": 135675
         },
         "src/services/commonsImage.ts": {
             "lastModified": "2026-09-10T13:01:57",
             "size": 6020
         },
         "src/services/mockAIService.ts": {
-            "lastModified": "2026-09-13T11:34:47",
-            "size": 26188
+            "lastModified": "2026-09-30T14:32:56",
+            "size": 41234
         },
         "src/services/providers/genericProvider.ts": {
             "lastModified": "2026-09-13T11:19:44",
@@ -717,16 +741,16 @@
             "size": 1937
         },
         "src/types/ai.ts": {
-            "lastModified": "2026-09-15T11:31:58",
-            "size": 9315
+            "lastModified": "2026-09-30T13:00:52",
+            "size": 10979
         },
         "src/types/aiProviders.ts": {
             "lastModified": "2026-09-12T13:22:28",
             "size": 26635
         },
         "src/types/index.ts": {
-            "lastModified": "2026-09-20T09:49:41",
-            "size": 10466
+            "lastModified": "2026-09-30T13:01:06",
+            "size": 11258
         },
         "src/utils/__tests__/export.test.ts": {
             "lastModified": "2026-09-15T13:26:33",

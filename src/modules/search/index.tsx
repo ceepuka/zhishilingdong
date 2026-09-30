@@ -16,7 +16,14 @@ interface ModuleRef {
   reset?: () => void;
 }
 
-export const SearchModule = forwardRef<ModuleRef>((_, ref) => {
+interface SearchModuleProps {
+  /** 其他模块（翻译的关联术语）跳过来的搜索词：挂载后自动发起一次搜索 */
+  initialQuery?: string | null;
+  /** 已消费，通知外层清空，避免下次挂载重复搜索 */
+  onInitialQueryConsumed?: () => void;
+}
+
+export const SearchModule = forwardRef<ModuleRef, SearchModuleProps>(({ initialQuery, onInitialQueryConsumed }, ref) => {
   const s = useStrings();
   const {
     mode,
@@ -186,6 +193,21 @@ export const SearchModule = forwardRef<ModuleRef>((_, ref) => {
     // 这里不再用原始输入提前查历史（原始输入与归一化主题可能不同，会查不到）。
     search(searchQuery);
   };
+
+  /**
+   * 跨模块跳转进来的搜索词：挂载后自动搜一次。
+   *
+   * 用 ref 守门而不是依赖 `handleSearch`（它每次渲染都是新函数，进依赖会每帧重跑）；
+   * 消费后由外层把 state 清空，所以"切走再切回搜索"不会莫名其妙又搜一遍。
+   */
+  const consumedInitialQueryRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialQuery || consumedInitialQueryRef.current === initialQuery) return;
+    consumedInitialQueryRef.current = initialQuery;
+    onInitialQueryConsumed?.();
+    handleSearch(initialQuery);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuery]);
 
   const handleNodeClick = (node: KnowledgeGraphNode) => {
     const topic = node.topic || node.title;

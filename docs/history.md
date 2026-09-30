@@ -1,5 +1,229 @@
 # 演变历史
 
+## 2026-09-30（演示数据补齐 + 可点击目标全量守卫 + 发布 v1.7.2）
+
+### 事件
+- **反馈（上一条需求上线后实测）**：「很好了，请补充 Mock 数据，并发布新版本」。
+- 上一版把查词/翻译的三个区块做成了可点击入口，但 **Mock 演示数据没跟上** —— 打开就是"功能看着有、点下去什么都没有"。
+
+### 真因
+先量化再动手，缺口比预想的大：
+
+| 区块 | 修复前 | 说明 |
+|------|--------|------|
+| 常用搭配 | `collocations` 数量 = **0 / 58** | 该区块在 Mock 下**永不出现**（渲染条件是数组非空） |
+| 关联术语 | **15 / 58** 词条有 | 大部分词条点不出东西 |
+| 短语词条 | **0 条** | 而"关键词带释义 + 可点击"的主场恰恰是短语查询 → 演示时只会看到 `defaultWordData` 的"暂无该单词的释义" |
+| 翻译语料 | `relatedTerms: ['相关词汇']` / `grammarNotes: ['语法说明']` | **占位垃圾**：点"相关词汇"会去知识搜索里搜出无关内容 |
+| 目标词可达性 | 关联术语 104/243、常用搭配 240/247 落到空词条 | 补了数据也没用，点了还是空的 |
+
+另外 `mockSentenceResult` 是**无任何引用**的死代码（`mockAIService` 用的是自己的 inline 表）。
+
+### 修复
+
+**一、补数据：按"演示时看得见的东西"排优先级**
+
+| 层 | 处理 |
+|----|------|
+| 短语词条 | 新增 9 条（`good morning` / `respond well to` / `data structure` / `machine learning` / `artificial intelligence` / `deep learning` / `natural language processing` / `big O notation` / `take into account` / `in terms of`），带 `keywords` / `relatedTerms` / `collocations`。其中 `respond well to` **复刻用户报错里那个词条的真实内容**（3 条释义 + 5 个关键词 + 4 条搭配） |
+| 词条补全 | 新增 `mockExtra` 合并表 + 合并循环，为全部 **68 条**词条补齐 `collocations` / `relatedTerms`。**已有值优先**：原词条里手写的 `relatedTerms` 更贴学科，不能被表里的通用词顶掉 |
+| 关键词兜底 | `mockMiniGlossary` 扩到 130+ 条；新增 `deriveMockKeywords(text, max)` 按词表拆词 + 附一句话释义，**查不到释义的词直接不返回**（避免塞碎词） |
+| 翻译语料 | 新增 `mockSentenceExtras`（10 条，英→中 6 条 / 中→英 4 条），译文/关键词/关联术语/语法说明全是真内容；**没策展数据就不给**，不再编造占位垃圾 |
+| 死代码 | 删除 `mockSentenceResult` 与随之未使用的 `SentenceResult` import |
+
+**二、目标词可达性：新增降级拆解释义（本次最关键的一条）**
+
+补完数据后发现更根本的问题：**可点击目标天然远多于词表**（354 个唯一目标词 vs 68 条词条）。
+于是新增 `deriveMockFallbackDefinitions(word)`：
+
+- 未收录时不再一律甩"暂无该单词的释义"，而是把查得到的词素逐个解释，拼成
+  `逐词拆解：quantum 量子 + mechanics 力学。（Demo 数据未收录该词条的完整释义，配置模型密钥后会有准确解释）`
+- **明确标注是演示降级，不编造词义**；一个词素都查不到时仍如实返回"暂无该单词的释义"
+- 结果：354 个可点击目标，落空 **0** 个
+
+**三、全量守卫**
+
+新增 `src/modules/translate/__tests__/mockLinks.test.ts`：遍历所有词条的 `relatedTerms` / `collocations` / `keywords`，
+用 `vi.useFakeTimers()` + `advanceTimersByTimeAsync(400)` 跳过 mock 内部的 `delay(300)`，
+逐个走真实 `queryWord()` 断言没有一个只剩"暂无该单词的释义"。**以后往词条里加词而词表没跟上，这条立刻红**
+（写这条时它立刻抓到 `agent` 一个漏网词）。
+
+### 文件变更
+- 更新 `src/modules/translate/mockData.ts`：删死代码 `mockSentenceResult`；新增 9 条短语词条；文件末尾新增 `mockExtra` 表与合并循环
+- 更新 `src/services/mockAIService.ts`：`mockMiniGlossary` 扩到 130+ 条；新增 `deriveMockKeywords()`、`deriveMockFallbackDefinitions()`、`mockSentenceExtras`；`queryWord` 关键词改为"词条自带优先、否则按词表拆"并透出 `imageQuery`；`queryTranslate` 改为语料表驱动、`tokens` 按原文词序配 key
+- 新建 `src/modules/translate/__tests__/mockLinks.test.ts`（3 例）
+- 版本与文档：`package.json` → `1.7.2`；`docs/versions.md` 新增 v1.7.2；README 版本表；`docs/progress.md`（m042）；`docs/todo.md`
+
+### 构建验证
+- `tsc --noEmit` 零错误；vitest **383 例 / 34 文件全绿**
+- 真实浏览器探测（`http://localhost:5173`，清 localStorage 使路由落到 Mock；探针 `~/.workbuddy/tmp/probe-mock-v172.cjs`，21 项断言；**0 console error / 0 pageerror**）：
+  - 查词 `algorithm`：常用搭配 4 条、关联术语 5 条全部出现；点关联术语 → 换成那个词的结果且**有真实释义**（不是空词条）
+  - 查词 `good morning`：短语徽标 + 2 条带释义关键词 + 3 条常用搭配；点关键词 → 跳查词并查到那个词
+  - 翻译 `good morning`：译文片段 DOM 顺序 `[2 早上, 1 好]`（**语序相反**，证明按 key 而非按位置配对）；关联术语 3 条不含占位垃圾，点击切到 `#search` 且产生搜索记录
+- 目标词审计（`~/.workbuddy/tmp/audit-mock-links.cjs`）：354 个唯一目标词，**落空 0**
+
+### 关联文档
+- 更新 `docs/versions.md` / `docs/progress.md` / `docs/todo.md` / `docs/worklog.md` / README
+
+### 经验教训
+- **"补数据"要先量"点了有没有反应"**：`collocations` 数量为 0 这件事，从源码里看不见（渲染条件在组件里）；
+  量化的口径必须是"用户实际会点到的目标"（354 个），而不是"字段有没有被填"（68 条）。
+- **可点击目标 ≫ 词表规模是常态，别指望靠枚举补完**：68 条词条天然产出 354 个可点词。正确解法是**让兜底也可看**
+  （按词素拆解 + 明确标注降级），而不是手写第 355 条词条。补数据只解决"体面"，兜底才解决"不落空"。
+- **全量守卫测试比人肉抽查可靠**：`mockLinks.test.ts` 一上线就抓到关键词里的 `agent` 没进词表 ——
+  这类漏网词人工审十遍也未必撞上。假时钟是让"354 次带 300ms 延迟的查询"能进单元测试的关键。
+- **演示数据里的占位垃圾比没有更糟**：`relatedTerms: ['相关词汇']` 让用户点一个看起来正常的按钮，
+  跳过去却搜出无关内容 —— 要么给真内容，要么这个区块不显示。
+
+---
+
+## 2026-09-30（跳转查词报 "Failed to parse JSON response"：查词/翻译接入统一续写链路 + 错误文案分档）
+
+### 事件
+- **反馈（上一条需求上线后实测）**：点关键词跳转查词时报错 ——
+  `Failed to parse JSON response (length=1339, preview: {"word":"respond well to","isPhrase":true,"phonetic":"","definitions":[{"pos":"phrase","meaning":"对……反应良好…`
+- 期望是"**别再报这个错**"，而不是"换个说法显示"。
+
+### 真因
+- 查词 / 翻译是全项目**唯一还走非流式 `callModelWithJSON`** 的生成入口。那条路没有续写、没有中断归因、没有部分内容：
+  模型少写一个字符（示例里停在 `"en":"Th`），`parseJSONResponse` 的四层修复也补不回来，返回 `null`，
+  于是**解析层的整条技术描述被当成用户文案直接甩到界面上**。
+- 所以这不是"模型不稳定"这一个问题，而是两件事叠在一起：**内容没救回来** + **错误归因上屏**。
+
+### 修复
+
+**一、把查词/翻译接进统一续写链路**
+
+| 项 | 处理 |
+|----|------|
+| 新增入口 | `BaseAIProvider.generateJSONWithContinuation<T>(prompt, systemPrompt, depth, requiredKeys, signal?)` —— 复用**同一个** `callModelStreamWithContinuation`（同一重试预算 `MAX_GENERATION_ATTEMPTS`、同一 `canContinueAfter` 判据、同一套中断归因），只是不需要增量回调。**没有另写一套非流式续写**（两套实现必然漂移） |
+| 完成判定 | 新增 `buildJSONKeysCompleteChecker(requiredKeys)`：与 `buildGenerateCompleteChecker` 同口径（复用解析层 `analyzeJSON`，不另写括号配对），必填字段由调用方给 —— 查词 `['word','definitions']`、翻译 `['original','translation']` |
+| 接入 | `queryWord` / `queryTranslate` 由 `callModelWithJSON` 切到新入口；确实一个字都没解析出来时抛 `GenerationInterruptedError(interruption ?? createInterruption('parse', GENERATE_FAILED))`，由 `withFallback` 透传 code |
+| 部分内容 | 全程零可渲染快照才当失败；有半截 JSON 就渲染出来（`lastRenderable` 兜底），不再"整段丢弃" |
+
+**二、状态透出 + 文案分档（技术细节不上屏）**
+
+| 项 | 处理 |
+|----|------|
+| 类型 | `DictionaryQueryResponse` / `TranslateQueryResponse`（`types/ai.ts`）与 `WordResult` / `SentenceResult`（`types/index.ts`）各新增 `truncated` / `continued` / `interruption` |
+| 提示位置 | `WordResult` / `SentenceResult` 在**结果卡末尾**挂 `GenerationNotice`（按 side/kind 分档配色）。放内容之前等于"先报错再看内容" |
+| 文案 | 新建 `src/modules/translate/errorText.ts::friendlyTranslateError(code, rawMessage)`；`translate.errors` 新增 timeout / network / protocol / incomplete / contentFiltered / generateFailed / invalidApiKey / serviceUnavailable 八条中英文案 |
+| 为什么不复用搜索的 `toFriendlyError` | 那套假设"已收到内容已展示"（搜索是流式边出边渲染），查词/翻译没有部分渲染，措辞必须不同，硬套会给出与屏幕不符的提示 |
+| 删掉 mock 兜底 | `translate/index.tsx` 的 catch 以前会**静默塞一份 mock 结果**（用户会当真实结果读），改为按 code 报错 |
+
+### 文件变更
+- 更新 `src/services/baseAIProvider.ts`：新增 `buildJSONKeysCompleteChecker()`、`generateJSONWithContinuation()`；`queryWord` / `queryTranslate` 切换链路并透出 `truncated` / `continued` / `interruption`（兜底路径三个字段置空）
+- 新建 `src/modules/translate/errorText.ts`：`friendlyTranslateError()`
+- 更新 `src/types/ai.ts` / `src/types/index.ts`：4 处接口新增三个可选字段
+- 更新 `src/modules/translate/WordResult.tsx` / `SentenceResult.tsx`：结果卡末尾挂 `GenerationNotice`
+- 更新 `src/modules/translate/index.tsx`：`!response.success || !response.data` → 按 code 出文案；删除 mock 兜底与 raw message 上屏
+- 更新 `src/i18n/strings/translate.ts`：`translate.errors` 八条文案（中英）
+- 更新 `src/services/__tests__/continuation.test.ts`：新增 12 例（`buildJSONKeysCompleteChecker` 7 例 + `generateJSONWithContinuation` 5 例，含"本次 bug 的原始形态"回归）
+
+### 构建验证
+- TypeScript 类型检查：通过（`tsc --noEmit` 零错误）
+- 测试：**380 例 / 33 文件全绿**（新增 12 例）
+- 真实浏览器（`http://localhost:5173`，**拦截 AI 端点**模拟"模型只写了一半"，探针 `~/.workbuddy/tmp/probe-translate-truncation.cjs`，8 项断言全过）：
+  - **场景 A（本次 bug 的形态）**：第 1 轮 SSE 只吐半截 JSON（无 `finish_reason`）→ 自动发起第 2 次请求补齐 → **只存在于第 2 轮返回体**里的第 2 条释义与例句译文出现在屏幕上；提示为 teal「已自动续写并补全」，无报错卡，页面不含任何技术细节
+  - **场景 B（两轮都补不回来）**：连续 3 轮都吐不出 JSON → 3 次请求后才放弃，界面显示「模型输出被提前中断，结果可能不完整，请重试」；全文不含 `Failed to parse JSON` / `preview:`；同一份技术描述只出现在 `console.error`
+  - 前置：探针把 zhipu 配成"可用" provider 后由路由拦截，请求确实走 `stream: true`
+
+### 关联文档
+- 更新 `docs/design.md`：4.1 生成链路（查词/翻译不再走非流式入口）
+- 更新 `docs/worklog.md`：2026-09-30 条目补"跳转查词报错"一节
+
+### 经验教训
+- **"解析失败"这四个字不该出现在用户界面**：`length=…` / `preview=…` 对用户零价值。正确顺序是**先把能救的救回来**（续写），救不回来再按**可行动的**原因给文案，细节只进 `interruption.detail` 与控制台。
+- **一个模块漏接统一链路，症状会长得很像"模型不可靠"**：查词/翻译是唯一漏网的生成入口，于是"模型有时写不完"这件事**只**在查词上表现为硬报错。新增生成入口时先问一句"它接的是哪条链路"。
+- **探针陷阱**：续写轮的 prompt 是 `buildJSONContinuationPrompt(已生成内容)`，**不含原始 prompt** ——
+  按原始关键词分流请求，会把续写轮误判成旁路调用（本次踩到，一度让场景 B 变成"没有报错"）。
+  分流条件要同时认原始 prompt 特征与续写提示词特征。
+
+---
+
+## 2026-09-30（翻译对照改 key 配对 + 词典/翻译的关键词带释义与跳转重构）
+
+### 事件
+- **反馈（第一轮）**：翻译模式的"高亮对照"语序不对 —— 原文与译文顺序相反时高亮错位。
+- **反馈（第二轮，纠正方案）**：用户给出正确模型 ——
+  「只需要"Good - 好，morning - 早上"这样**双射的键值对**，依据输入文本顺序给"Good & 好"标"键1"、"morning & 早上"标"键2"，
+  按相同标记高亮，不便于高亮处理的就"无键"。**AI 处理文本时填好键就行了，不需要复杂的对齐处理**。」
+- **反馈（第三轮）**：「完善词典翻译模块：查词模式关联术语和常用搭配等点击应跳转查词；翻译模式风格选择调整至翻译前；
+  关联术语跳转知识搜索；关键词参考此样式（带释义）；查词和翻译的关键词都要释义、都跳转查词。」
+- **约束**：用户明确「先不发新版本，不用兼容旧数据处理（仅知识模块需兼容）」。
+
+### 决策与改动
+
+**一、对照模型：从"按位置单调扫描"改为"AI 填 key、前端按 key 配对"**
+
+| 项 | 处理 |
+|----|------|
+| 为什么推翻第一版 | 第一版按字符位置单调游标扫描，**语序相反时直接丢对照**：`Good morning → 早上好` 里 key2（morning/早上）配不上。语序相反是翻译的常态，不是边界情况 |
+| 配对唯一依据 | `key`（AI 按**原文出现顺序**编号，两侧同键）。**不用数组下标，也不用字符位置** |
+| 渲染铁律 | 屏幕文字**只从 `original` / `translation` 两个权威字符串切区间**，绝不拼接 `segments`。不变量 `runs.map(r => r.text).join('') === text`；降级只能是「不高亮」，不能是「不显示」 |
+| 无键语义 | 不便于对照的虚词/标点 AI 不放进数组 = 无键 = 不高亮（正常状态，不是错误） |
+| 定位 | `collectRanges()` 逐条独立 `indexOf`（无游标），**结果按字符位置排序**（按 key 序排会得到逆序区间）；重叠丢弃 |
+| 划选定位 | 读锚点的 `data-key`。用 `findIndex(text.includes(sel))` 时**同一段文字出现多次永远命中第一处** |
+
+**二、关键词：裸字符串 → `{term, definition}`，三个入口全部可点击**
+
+| 项 | 处理 |
+|----|------|
+| 数据模型 | 新增 `KeywordEntry { term, definition? }`；`WordResult.keywords` / `SentenceResult.keywords` 改为该类型 |
+| 归一化 | `toKeywordEntries()`（`components/ui/TermList.tsx`）同时吃 `{term,definition}` 与裸字符串 —— AI 可能偷懒返回字符串，收藏夹读到的旧数据也是字符串。**缺释义只是少一行字，条目本身绝不消失** |
+| Prompt | `queryWord` 要求关键词带 `definition`（"应该给释义，而不是留空或照抄 term"）；`queryTranslate` 关键词改为 `{term, definition}` 并更新示例 |
+| 渲染 | 新组件 `TermList`（共享，"词 + 一句话释义"列表）；查词/翻译结果的 keywords 全部改用；收藏夹（只读）同样接入 |
+| 点击出口 | 查词模式：关键词 / 关联术语 / 常用搭配 → 查词（`onLookup`）；翻译模式：关键词 → 查词，关联术语 → **知识搜索**（`onSearchTopic`） |
+| `Tag` 语义修正 | 传了 `onClick` 才渲染成 `<button>`；不可点的标签不再有"能点"的悬停样式 |
+
+**三、翻译风格前移到输入区**
+
+- `TranslateInput` 顶部新增风格选择器（**仅翻译模式显示**，排在输入框之前）；`SentenceResult` 移除可切换的风格按钮，只展示"这次用的是哪种风格"。
+- 语义随之改变：改风格不再触发自动重翻（风格是"这次要翻成什么样"的输入项，不是结果的一部分）。
+
+**四、跨模块跳转（翻译的关联术语 → 知识搜索）**
+
+- `App.tsx` 持有 `pendingSearchTerm` + `handleSearchTopic`；词经 props 交给 `SearchModule`，由它**挂载后消费一次**，消费完回调清空（`consumedInitialQueryRef` 守门）。
+- 为什么不用 ref 直调：切标签页那一刻 `SearchModule` 才挂载，`searchRef.current` 还是 `null`。
+
+### 文件变更
+- 重写 `src/modules/translate/alignment.ts`：`key` 归一化、`collectRanges`（位置排序）、`sharedKeys`、`buildRuns`
+- 新建 `src/components/ui/TermList.tsx`：`TermList` + `toKeywordEntries()`
+- 新建 `src/modules/translate/__tests__/keywordTerms.test.tsx`（12 例）、`src/modules/search/__tests__/searchInitialQuery.test.tsx`（2 例）
+- 更新 `src/types/ai.ts` / `src/types/index.ts`：`KeywordEntry`、两处 `keywords` 类型、`TranslationSegment.key`
+- 更新 `src/services/baseAIProvider.ts`：`asKey()`、`toKeywordList()`、两处 prompt 与 sanitize、兜底路径 `segments: undefined`
+- 更新 `src/modules/translate/SentenceResult.tsx`：key 配对渲染、风格按钮移除、关键词/关联术语点击出口
+- 更新 `src/modules/translate/WordResult.tsx`：关键词改 `TermList`，关联术语/常用搭配可点击
+- 更新 `src/modules/translate/TranslateInput.tsx`：风格选择器前移
+- 更新 `src/modules/translate/index.tsx`：`handleTranslate(text, modeOverride?)`、`handleKeywordLookup`、`handleTermSearch`
+- 更新 `src/App.tsx` / `src/modules/search/index.tsx`：跨模块跳转通道
+- 更新 `src/components/ui/Tag.tsx`、`src/modules/favorites/index.tsx`：关键词渲染口径统一
+- 更新 `src/i18n/strings/translate.ts`：新增 `styleLabel` / `relatedTermsLookup` / `relatedTermsSearch` / `collocationsLookup` / `keywordsLookupAction`
+- 更新 `src/services/mockAIService.ts` / `src/modules/translate/mockData.ts`：关键词带释义（新增 `mockMiniGlossary`）
+
+### 构建验证
+- TypeScript 类型检查：通过（`tsc --noEmit` 零错误）
+- 测试：**368 例 / 33 文件全绿**（全量跑 32 文件 347 例通过 + 沙箱 EPERM 漏收集的 `useSearchStateMachine.test.tsx` 单跑 21 例通过）
+- 真实浏览器（`http://localhost:5173`，Mock 模式，探针 `~/.workbuddy/tmp/probe-translate-keyword-ux.cjs`）：12 项断言全过、0 console error / 0 pageerror
+  - 语序相反 `Good morning → 早上好`：译文侧 `data-key` 顺序为 `['2','早上'],['1','好']`，两对都能高亮
+  - 查词模式点"data structure"→ 结果换成该词条
+  - 翻译模式：风格选择器在输入框之前就可见；关键词渲染为 `good 好的；令人愉快的`；点关键词 → 切到查词模式并查到 `good`（**不是再翻一次**）
+  - 关联术语 → `location.hash === '#search'`，且确实发起了搜索（产生搜索历史记录）
+
+### 关联文档
+- 更新 `docs/design.md`：3.3 模块三技术要点、3.3.1 跨模块跳转、4.2 数据模型（`KeywordEntry`、`segments.key`）
+- 更新 `docs/prd.md`：3.2.2 结果展示、新增 3.2.3 结果跳转、3.2.4 附加功能、验收标准
+
+### 经验教训
+- **"按下标/位置配对"在语序相反的语言之间必然错**：`Good morning → 早上好` 是常态而非边界。
+  跨语言的对齐关系只能由**语义标注**（AI 填 key）表达，任何基于位置的启发式都是在猜。
+- **`setState` 之后立刻调一个读同一 state 的函数，读到的是旧值**：点"关键词跳查词"时先 `setMode('dictionary')`
+  再 `handleTranslate()`，后者闭包里还是 `'translate'` → 会变成"再翻一次这句"。**模式必须显式传参**，不能靠 state 收敛。
+- **切标签页那一刻目标模块才挂载，ref 一定是 null**：跨模块带参跳转只能"把参数交给目标模块，由它挂载后自己消费"，
+  并且要保证**只消费一次**，否则切走再切回会重复触发。
+
+---
+
 ## 2026-09-29（仓库转公开：敏感文件清理 + 新建单提交历史的公开仓库）
 
 ### 事件
@@ -67,6 +291,18 @@
 ### 影响
 - 分发成本降到"发一个文件"；代价是 `file://` 来源为 `null`，个别厂商若拒绝该来源则无法调用（已记录在使用说明的"已知限制"里）。
 - 发布流程变成两步：`npm run release` 产出 → 建/更新 Release 挂附件。
+
+### 经验教训
+- **⚠️ GitHub Release 附件名只接受 ASCII**：传中文名（`知识灵动助手.html`）服务端**返回 HTTP 200 且不报错**，但名字被静默替换成 `default.html` ——
+  只有去附件列表里看才会发现。`scripts/publish-release.mjs` 因此改为"ASCII 下载名 + 中文 `label`"的映射，并带上"名字被改掉就告警"的自检。
+  **凡是"接口不报错但结果不对"的场景，都不要以状态码作为成功判据，要去核对最终状态。**
+- **沙箱里 node 不能 spawn `git`**（`spawnSync ... EBUSY`，用绝对路径也一样）：需要在 node 脚本里用 git 凭据时，
+  改由 bash 先取好写进临时文件，再让 node 读环境变量（`GH_CRED_FILE` / `GH_TOKEN`）。
+  另：**`VAR=$(...) && cmd` 不会把变量导出给子进程**（会报"缺少 GH_TOKEN"）→ 写 `export VAR=$(...)` 或 `VAR=... cmd`。
+- **判断 CORS 必须带对照组**：只看 `file://` 的失败无法区分"`null` origin 被厂商拒绝"和"这台机器网络不通"。
+  加一组 `http://localhost` 同时跑，两边表现一致才能得出"是网络问题、不是 CORS"的结论。
+- **验证 Release 附件真的能下载，要走 `api.github.com` 的 asset 端点**（会 302 到 `release-assets.githubusercontent.com`）：
+  本机 curl 走 HTTPS 代理访问 `github.com` 报 `schannel: failed to receive handshake`，node `fetch` 直连 `github.com:443` 被墙，但 `api.github.com` 两条路都通。
 
 ---
 
