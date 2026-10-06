@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { WordResult as WordResultType } from '../../types';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
@@ -6,6 +6,11 @@ import { Tag } from '../../components/ui/Tag';
 import { TermList } from '../../components/ui/TermList';
 import { GenerationNotice } from '../../components/ui/GenerationNotice';
 import { ImageFigure } from '../../components/ui/ImageFigure';
+import { CopyButton, ActionFeedbackToast, useActionFeedback } from '../../components/ui/ActionBar';
+import { ExportMenu } from '../../components/ui/ExportMenu';
+import { serializeWordResult } from '../../utils/serialize';
+import { exportDocx } from '../../utils/exportDocx';
+import { downloadText } from '../../utils/clipboard';
 import { useFavorites } from '../../hooks/useFavorites';
 import { useSpeechSynthesis } from '../../hooks/useSpeechSynthesis';
 import { useStrings } from '../../hooks/useStrings';
@@ -44,6 +49,9 @@ export function WordResult({ result, onLookup }: WordResultProps) {
   const fav = isFavorite(result, 'dictionary');
   const [audioPlayed, setAudioPlayed] = useState(false);
   const { speak, isSpeaking } = useSpeechSynthesis();
+  const { feedback, notify } = useActionFeedback();
+  /** 复制与导出共用同一份序列化结果 —— 出口口径必须一致 */
+  const plainText = useMemo(() => serializeWordResult(result), [result]);
 
   const handlePlayAudio = () => {
     setAudioPlayed(true);
@@ -82,6 +90,39 @@ export function WordResult({ result, onLookup }: WordResultProps) {
             </svg>
             {audioPlayed || isSpeaking ? s.translate.reading : s.translate.pronunciation}
           </Button>
+          {/* 词条此前**没有任何复制/导出入口** —— 查出来的生词想存进生词本只能手抄。
+              序列化与导出 txt 共用 serializeWordResult，保证两个出口内容一致。 */}
+          <div className="relative">
+            <CopyButton
+              text={plainText}
+              label={s.common.copy}
+              strings={s.common.exportActions}
+              notify={notify}
+            />
+            <ActionFeedbackToast feedback={feedback} />
+          </div>
+          <ExportMenu
+            triggerLabel={s.translate.export}
+            notify={notify}
+            notifyStrings={s.common.exportActions}
+            options={[
+              { format: 'txt', label: s.doc.exportTxt, icon: '🗒️' },
+              { format: 'md', label: s.doc.exportMd, icon: '📝' },
+              { format: 'docx', label: s.common.exportActions.exportDocx, icon: '📄' },
+            ]}
+            onSelect={(format) => {
+              if (format === 'docx') {
+                // 词条导出 Word：`##` 层级会被 exportDocx 映射成 Word 标题样式
+                void exportDocx(plainText, result.word, result.word);
+                return;
+              }
+              downloadText(
+                plainText,
+                `${s.translate.exportFilePrefix}${result.word}.${format}`,
+                format === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8'
+              );
+            }}
+          />
           <Button variant="secondary" size="sm" onClick={handleToggleFavorite}>
             {fav ? `❤️ ${s.common.favorited}` : `⭐ ${s.common.favorite}`}
           </Button>

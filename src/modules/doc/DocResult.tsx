@@ -1,8 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { DocResult as DocResultType } from '../../types';
 import { Card } from '../../components/ui/Card';
 import { Button } from '../../components/ui/Button';
-import { exportDocument } from '../../utils/export';
+import { exportDocument, type DocumentExportFormat } from '../../utils/export';
+import { CopyButton, ActionFeedbackToast, useActionFeedback } from '../../components/ui/ActionBar';
+import { ExportMenu } from '../../components/ui/ExportMenu';
 import { useFavorites } from '../../hooks/useFavorites';
 import { useStrings } from '../../hooks/useStrings';
 import { GenerationNotice } from '../../components/ui/GenerationNotice';
@@ -13,43 +15,22 @@ interface DocResultProps {
   onRegenerate?: () => void;
 }
 
-type ExportFormat = 'txt' | 'md' | 'html' | 'pdf';
-
 export function DocResult({ result, onRegenerate }: DocResultProps) {
   const s = useStrings();
   const { favorites, isFavorite, addFavorite, removeFavorite } = useFavorites();
   const fav = isFavorite(result, 'document');
+  const { feedback, notify } = useActionFeedback();
+  // docx 走 JSZip 是异步的（生成 zip 里有 await），导出期间必须占住按钮，
+  // 否则用户连点两次会拿到两个并发 zip 生成
   const [exporting, setExporting] = useState(false);
-  const [showExportMenu, setShowExportMenu] = useState(false);
-  const exportMenuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
-        setShowExportMenu(false);
-      }
-    };
-
-    if (showExportMenu) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showExportMenu]);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(result.content);
-  };
-
-  const handleExport = (format: ExportFormat) => {
+  const handleExport = async (format: DocumentExportFormat) => {
     setExporting(true);
-    setTimeout(() => {
-      exportDocument(result.content, result.title, format);
+    try {
+      await exportDocument(result.content, result.title, format);
+    } finally {
       setExporting(false);
-      setShowExportMenu(false);
-    }, 100);
+    }
   };
 
   const handleToggleFavorite = () => {
@@ -77,53 +58,36 @@ export function DocResult({ result, onRegenerate }: DocResultProps) {
           )}
         </div>
         <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={handleCopy}>
-            📋 {s.common.copy}
-          </Button>
+          <div className="relative">
+            {/* 之前是裸调 navigator.clipboard.writeText：本项目发布形态是本地
+                单文件 HTML（file://，非安全上下文），那里 clipboard 是 undefined，
+                点击直接抛 TypeError 且无任何提示 */}
+            <CopyButton
+              text={result.content}
+              label={s.common.copy}
+              strings={s.common.exportActions}
+              notify={notify}
+            />
+            <ActionFeedbackToast feedback={feedback} />
+          </div>
           <Button variant="secondary" size="sm" onClick={handleToggleFavorite}>
             {fav ? `❤️ ${s.common.favorited}` : `⭐ ${s.common.favorite}`}
           </Button>
-          <div className="relative" ref={exportMenuRef}>
-            <Button 
-              variant="secondary" 
-              size="sm" 
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowExportMenu(!showExportMenu);
-              }}
-              disabled={exporting}
-            >
-              {exporting ? s.doc.exporting : `📥 ${s.doc.export}`}
-            </Button>
-            {showExportMenu && (
-              <div className="absolute right-0 top-full mt-1 w-32 bg-white dark:bg-zinc-900 rounded-lg shadow-lg border border-slate-200 dark:border-zinc-800 z-10">
-                <button
-                  onClick={() => handleExport('txt')}
-                  className="w-full px-4 py-2 text-left text-sm text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800"
-                >
-                  📄 {s.doc.exportTxt}
-                </button>
-                <button
-                  onClick={() => handleExport('md')}
-                  className="w-full px-4 py-2 text-left text-sm text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800"
-                >
-                  📝 {s.doc.exportMd}
-                </button>
-                <button
-                  onClick={() => handleExport('html')}
-                  className="w-full px-4 py-2 text-left text-sm text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800"
-                >
-                  🌐 {s.doc.exportHtml}
-                </button>
-                <button
-                  onClick={() => handleExport('pdf')}
-                  className="w-full px-4 py-2 text-left text-sm text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800"
-                >
-                  📕 {s.doc.exportPdf}
-                </button>
-              </div>
-            )}
-          </div>
+          <ExportMenu
+            triggerLabel={s.doc.export}
+            exporting={exporting}
+            exportingLabel={s.doc.exporting}
+            notify={notify}
+            notifyStrings={s.common.exportActions}
+            options={[
+              { format: 'docx', label: s.common.exportActions.exportDocx, icon: '📄' },
+              { format: 'pdf', label: s.common.exportActions.exportPdf, icon: '📕', hint: s.common.exportActions.exportPdfHint },
+              { format: 'md', label: s.doc.exportMd, icon: '📝' },
+              { format: 'html', label: s.doc.exportHtml, icon: '🌐' },
+              { format: 'txt', label: s.doc.exportTxt, icon: '🗒️' },
+            ]}
+            onSelect={(format) => handleExport(format as DocumentExportFormat)}
+          />
           {onRegenerate && (
             <Button variant="secondary" size="sm" onClick={onRegenerate}>
               🔄 {s.doc.regenerate}

@@ -1,5 +1,5 @@
 import { useState, forwardRef, useCallback } from 'react';
-import { FavoriteItem, GeneratedKnowledge } from '../../types';
+import { FavoriteItem, GeneratedKnowledge, WordResult as WordResultType, SentenceResult as SentenceResultType } from '../../types';
 import { useFavorites } from '../../hooks/useFavorites';
 import { useStrings, fmt } from '../../hooks/useStrings';
 import { FavoriteContent } from './FavoriteContent';
@@ -8,6 +8,13 @@ import { LatexText } from '../../components/ui/LatexText';
 import { MarkdownContent } from '../../components/ui/MarkdownContent';
 import { GenerationNotice, type GenerationNoticeData } from '../../components/ui/GenerationNotice';
 import { TermList } from '../../components/ui/TermList';
+import { CopyButton, ActionFeedbackToast, useActionFeedback } from '../../components/ui/ActionBar';
+import { ExportMenu } from '../../components/ui/ExportMenu';
+import { downloadText, safeFilename, triggerDownload } from '../../utils/clipboard';
+import { serializeWordResult, serializeSentenceResult, serializeDocumentResult } from '../../utils/serialize';
+import { exportDocx } from '../../utils/exportDocx';
+import { generateKnowledgeNote } from '../../utils/export';
+import { buildMarkdownPdf } from '../../utils/exportPdf';
 
 interface FavoritesModuleRef {
   showFavorite?: (item: FavoriteItem) => void;
@@ -25,10 +32,87 @@ function BackButton({ onClick, label }: { onClick: () => void; label: string }) 
   );
 }
 
+/**
+ * 详情页工具条：复制 + 导出。
+ *
+ * **收藏详情此前完全没有复制/导出入口** —— 用户在别处收藏了一份知识笔记，
+ * 进详情页只能读，取不出来。这个缺口和"内容不全"是同一类问题：
+ * 功能存在但没有出口。
+ *
+ * 文案与序列化全部走共用出口（serialize* / exportKnowledgeNote / exportDocx），
+ * **不另写一份拼接**：收藏详情与搜索页展示的是同一份数据，两个出口口径
+ * 必须一致（"同一份内容两个出口不一致是 bug，不是风格差异"）。
+ */
+function DetailActions({
+  plainText,
+  title,
+  exportFormats,
+  notify,
+  feedback,
+}: {
+  /** 复制到剪贴板的内容 */
+  plainText: string;
+  /** 用作导出文件名（会被 safeFilename 清洗） */
+  title: string;
+  /** 额外导出项（如知识笔记的 docx / pdf） */
+  exportFormats?: { format: string; label: string; icon?: string; hint?: string }[];
+  notify: (kind: 'ok' | 'error', msg: string) => void;
+  feedback: { kind: 'ok' | 'error'; text: string } | null;
+}) {
+  const s = useStrings();
+  return (
+    <div className="relative flex gap-2">
+      <CopyButton
+        text={plainText}
+        label={s.common.copy}
+        strings={s.common.exportActions}
+        notify={notify}
+      />
+      <ExportMenu
+        triggerLabel={s.doc.export}
+        notify={notify}
+        notifyStrings={s.common.exportActions}
+        options={[
+          { format: 'txt', label: s.doc.exportTxt, icon: '🗒️' },
+          { format: 'md', label: s.doc.exportMd, icon: '📝' },
+          ...(exportFormats ?? []),
+        ]}
+        onSelect={async (format) => {
+          // docx 必须走 JSZip 单独生成，不能当纯文本写文件：
+          // .docx 是 zip 包，内容写成 md 的话 Word 打不开
+          if (format === 'docx') {
+            await exportDocx(plainText, title, 'export');
+            return;
+          }
+          // PDF 走 PDF 生成器（不是浏览器打印）：打印产出位图，文字不可复制。
+          // 同理不能把 md 当 .pdf 存 —— 那是二进制格式，塞文本会被判损坏。
+          if (format === 'pdf') {
+            triggerDownload(
+              new Blob([buildMarkdownPdf(plainText, title).slice().buffer as ArrayBuffer], { type: 'application/pdf' }),
+              `${safeFilename(title, 'export')}.pdf`
+            );
+            return;
+          }
+          downloadText(plainText, `${safeFilename(title, 'export')}.${format}`, mimeFor(format));
+        }}
+      />
+      <ActionFeedbackToast feedback={feedback} />
+    </div>
+  );
+}
+
+/** 导出格式 → MIME。txt/md/html 都补 charset，否则 Windows 记事本打开中文乱码 */
+function mimeFor(format: string): string {
+  if (format === 'md') return 'text/markdown;charset=utf-8';
+  if (format === 'html') return 'text/html;charset=utf-8';
+  return 'text/plain;charset=utf-8';
+}
+
 export const FavoritesModule = forwardRef<FavoritesModuleRef>((_, __) => {
   const s = useStrings();
   const { favorites, removeFavorite, clearFavorites, storageWarning, dismissStorageWarning } = useFavorites();
   const [selectedItem, setSelectedItem] = useState<FavoriteItem | null>(null);
+  const { feedback, notify } = useActionFeedback();
 
   const handleSelectItem = useCallback((item: FavoriteItem) => {
     setSelectedItem(item);
@@ -72,12 +156,25 @@ export const FavoritesModule = forwardRef<FavoritesModuleRef>((_, __) => {
                 {/* 与搜索页共用同一实现：标题头（含概览 summary）、中断提示、思维导图、
                     公式、配图、知识脉络、试题、趣味知识全部一致。
                     以前收藏是手写的降级版 —— 公式裸露、思维导图退化成标签、概要整段丢失。
-                    "返回列表"属于页面级操作，用插槽传进去，不污染共享实现。 */}
+                    "返回列表"属于页面级操作，用插槽传进去，不污染共享实现。
+                    复制/导出同样接在插槽旁：收藏详情此前完全取不出内容。 */}
                 <KnowledgeContentView
                   data={knowledge}
                   fallbackTitle={title}
                   headerActions={<BackButton onClick={handleBackToList} label={back} />}
                 />
+                <div className="flex justify-end -mt-2 mb-4">
+                  <DetailActions
+                    title={title}
+                    plainText={generateKnowledgeNote(knowledge).md}
+                    notify={notify}
+                    feedback={feedback}
+                    exportFormats={[
+                      { format: 'docx', label: s.common.exportActions.exportDocx, icon: '📄' },
+                      { format: 'pdf', label: s.common.exportActions.exportPdf, icon: '📕', hint: s.common.exportActions.exportPdfHint },
+                    ]}
+                  />
+                </div>
               </div>
             );
           }
@@ -235,6 +332,15 @@ export const FavoritesModule = forwardRef<FavoritesModuleRef>((_, __) => {
                   <LatexText className="text-sm text-slate-600 dark:text-zinc-400 block" text={data.etymology} />
                 </div>
               )}
+              {/* 序列化走 serializeWordResult：与查词页的复制/导出同一份内容 */}
+              <div className="flex justify-end">
+                <DetailActions
+                  title={String(data.word ?? s.favorites.defaultWord)}
+                  plainText={serializeWordResult(data as unknown as WordResultType)}
+                  notify={notify}
+                  feedback={feedback}
+                />
+              </div>
             </div>
           );
 
@@ -291,6 +397,15 @@ export const FavoritesModule = forwardRef<FavoritesModuleRef>((_, __) => {
                   </div>
                 </div>
               )}
+              {/* 与查句页共用 serializeSentenceResult：两个出口内容一致 */}
+              <div className="flex justify-end">
+                <DetailActions
+                  title={String(data.original ?? s.favorites.typeTranslation).slice(0, 30)}
+                  plainText={serializeSentenceResult(data as unknown as SentenceResultType, false)}
+                  notify={notify}
+                  feedback={feedback}
+                />
+              </div>
             </div>
           );
 
@@ -315,6 +430,17 @@ export const FavoritesModule = forwardRef<FavoritesModuleRef>((_, __) => {
               </div>
               {/* 中断提示衔接在正文最后（与文档模块同一口径） */}
               <GenerationNotice data={data as GenerationNoticeData} />
+              <div className="flex justify-end">
+                <DetailActions
+                  title={String(data.title ?? s.favorites.typeDocument)}
+                  plainText={serializeDocumentResult({ title: String(data.title ?? ''), content: String(data.content ?? '') })}
+                  notify={notify}
+                  feedback={feedback}
+                  exportFormats={[
+                    { format: 'docx', label: s.common.exportActions.exportDocx, icon: '📄' },
+                  ]}
+                />
+              </div>
             </div>
           );
 

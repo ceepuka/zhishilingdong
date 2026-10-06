@@ -1,5 +1,228 @@
 # 版本里程碑
 
+## v1.9.0 (2026-10-06) —— 导出公式可读 + PDF 真正能看（自研 PDF 生成器）
+
+> 起点是用户实测的两份桌面文件（`复数.docx` / `复数.pdf`）：**公式没渲染、PDF 整页看不见**。
+> 两条症状各有一个根因，而 PDF 那条要**推翻上一版"改走浏览器打印"的结论** ——
+> 打印对话框会把页面栅格化，产出的是**位图 PDF**（实测参考件 6 页、文本长度 0、
+> 中文字符 0）：**只要经过打印，文字就不可能可复制**。
+>
+> 修的过程中又挖出 6 个会让导出"崩掉或难看"的隐藏缺陷（跨页共用同一张图、
+> 横向画布被换回纵向、行盒外溢切字、字号单位不一致导致标题缩到 0.375×、
+> 孤行标题、位图流多一个换行把 JPEG 吃掉一个字节）。
+>
+> 注：v1.8.0 的改动此前**没有单独发布**，随本版一并上线。
+
+### 一、PDF 为什么"看不见"：不嵌字体的矢量方案在 Windows 上必然空白
+
+先记下走过的两条错路，省得后面再走一遍。
+
+- **第一版（v1.8.0）：走浏览器打印**。中文正常，但产物是位图 PDF，**文字不可复制、不可检索**。
+- **第二版：按 PDF 规范预定义 CJK 字体族**。`/BaseFont /STSong-Light` +
+  `/Encoding /UniGB-UCS2-H`，**不嵌 FontFile**，自带 ToUnicode CMap —— 结构完全合规、
+  体积零增长，pdf.js 也能提取到文字（975/1127/514/259 字）。**但阅读器没有字形**：
+  Chrome / Edge / PDFium / pdf.js 在 Windows 上都不提供 STSong-Light，
+  实测每页 inkRatio 0.0008~0.0023，油墨只来自 `2 Tr` 描边的鬼影，屏幕上等于白纸。
+  pdf.js 的日志已经把话说尽了：`Cannot load system font: STSong-Light`。
+- 结论写进代码注释：**不嵌字体就不能指望汉字在 Windows 上显示**。
+  顺带否掉两条嵌字体的路：jsPDF + 嵌入字体（覆盖 3500 常用字要 1.5–2 MB，单文件产物撑不住；
+  subset-font 在大字符集上根本没有真正子集化，21557 字仍输出 7 MB）、
+  fonteditor-core 把 CFF 转 glyf（转换不完整，cmap 与 glyf 顺序错位 → 汉字全错）。
+
+### 二、现行方案：每页位图 + 隐形文字层（扫描件 PDF 的标准做法）
+
+- `utils/canvasRenderer.ts`：用**浏览器渲染层**（系统字库）把每一页画成 canvas，
+  2 倍超采样（`PT_TO_PX = 96/72 × 2` ≈ 144 DPI），JPEG 后作为
+  `/Subtype /Image /Filter /DCTDecode` 的 XObject 整页铺满 —— 字形由位图负责，
+  **不依赖阅读器字体**。
+- `utils/pdfCore.ts`：手写 PDF 对象（零第三方依赖），组装内容流、字体、ToUnicode、
+  XObject 与 xref。
+- 位图里的字没有文字信息，所以再补一层渲染模式 `3 Tr`（不显形）的文字层，
+  恢复选择 / 复制 / 检索。**记录点只能在真正调 `fillText` 的地方**
+  （`PageWriter.record()`）—— 事后重新排版一定对不上。
+- 已知取舍（记在注释里）：位图页的文字选区框位置不精确（内容正确）；
+  一页几百 KB，比矢量文字大。
+
+### 三、公式没渲染：三条漏网通道
+
+围符内 `$…$` / `$$…$$` / `\(…\)` / `\[…\]` 一直是处理过的，漏的是另外三条：
+
+1. **围栏块 ` ```latex `**：`export.ts` 自己就会为 `concept.notation` 生成这种块，
+   而 `parseMarkdown` 会把行 join 成一段 —— 围栏与正文混在同一行，
+   靠"行首判围栏"的写法当场失效。
+2. **裸 LaTeX**：提示词明确要求 `notation` 字段"纯 LaTeX，不加任何围符"，
+   正文也常写 `i \times i=-1`。**这是用户看到的真因**。
+3. 嵌套参数：`\frac{z_1}{z_2}` 能匹配，`\frac{z_1 \overline{z_2}}{z_2 \overline{z_2}}` 不行 ——
+   原正则 `[^{}]*` 匹配不了嵌套花括号，且单次 `replace` 不回溯。
+
+全部收敛在 `utils/latexToText.ts`（docx 与 PDF 共用，不新增第二处实现）：
+
+- 新增 `readableLatexExpression()`（整段确定是公式 → 全量降级）与
+  `readableBareCommands()`（散文里夹的 → 只做命令级降级）。
+- `ARG` 允许一层嵌套 + `expandParamCommands()` 迭代 3 轮，
+  `\frac{\frac{a}{b}}{c}` → `((a)/(b))/(c)`。
+- **保守原则**：不确定是公式的散文里**不动花括号、不做裸 `_x` → 下标** ——
+  否则会吃坏 `snake_case`、`C:\Users\asus`、正则 `[^a-z]`、JSON 花括号。
+  实测 `把文件放到 C:\Users\asus 下面` 原样通过；`^` 转 `²` 用 `(?<!\[)` 避开字符类写法。
+
+### 四、6 个隐藏缺陷（都不是用户报的那两条）
+
+- **跨页共用同一张位图**：图片去重 key 用"尺寸 + 头 8 字节"，而同尺寸 JPEG 的头
+  8 字节是同一段 JFIF 标记 → 整份 PDF 只剩 1 个 `/XObject`，第 2 页起显示第 1 页。
+  改为全字节 FNV-1a 哈希；测试用"头 8 字节完全相同的假 JPEG"锁死。
+- **横向页其实是纵向画布**：`createRealCanvasCtx` 按 landscape 交换宽高，
+  而调用方已按"横向 = 宽 > 高"传参，二次交换互相抵消；超页时还会再换一次。
+  删掉交换，导图页可用宽度改用 `ctx.pageWidthPt`。
+- **行盒外溢致色块切字**：行高 1.55em 而文字画在"行顶 + 1em"，字形实际占 ~1.16em
+  → 每行溢出 0.6em，被紧随其后的色块/分隔线横切（探针实测 `高等解释:` 与公式框重叠 17px）。
+  统一为 `TEXT_TOP_GAP = 0.16` + `LINE_H = 1.6`。
+- **字号单位不一致（本次新增修复）**：`layoutSegs` 按 pt 排版（`seg.size * PT_TO_PX`），
+  `drawSegs` 却把 `seg.size` 当 px 画 —— 所有显式给了 `size` 的片段都缩到 **0.375×**：
+  标题 20pt 画成 20px、小节标题 14pt 画成 14px、选项字母 10px、出处小字 9px，
+  而行盒仍按正常字号预留 → **小节标题与选项字母小到看不清、还悬在行盒上半空**。
+  统一按 pt 解释；`record()` 的坐标与字号取到 0.01pt
+  （否则 `14*PT_TO_PX/PT_TO_PX` 会把 `13.999999999999998` 写进内容流）。
+- **孤行标题**：`ensure()` 只按标题自身高度预留，于是 `趣味知识` 正好落在第 1 页最底部
+  （画完只剩 7pt），标题与内容被劈到两页。新增 `KEEP_WITH_NEXT_PX`：标题后至少留两行正文，
+  否则整块挪到下一页。
+- **位图流多一个换行**：image 对象的字典串本身以 `stream\n` 结尾，组装时又补了一个 `\n`
+  → 流的第一个字节变成 `0x0A`，而 `/Length` 仍按 JPEG 原长声明，
+  解码器读到的是"前导换行 + JPEG 少最后一个字节"。测试直接用字节判据锁住
+  （`stream\n` 之后必须是 `FF D8`，按声明长度切完必须正好接 `endstream`）。
+
+### 五、依赖与产物体积
+
+- **新增**：`pdfjs-dist`（**仅测试用**：提取文字、核对页数与方向）、`jszip`（docx）。
+- **移除**：`jspdf` / `@types/jspdf`（写中文是乱码）、实验期引入但最终没用上的
+  `opentype.js` / `subset-font`。
+- 单文件产物 **2.61 MB**（v1.8.0 是 2.5 MB，增量来自 canvas 渲染器 + PDF 生成器）；
+  实测导出的 PDF：3 页 / 445 KB（正文两页 + 横向导图一页）。
+
+### 六、测试
+
+- 新增 `utils/__tests__/exportPdf.test.ts`（14 项）：注入 stub canvas 工厂
+  （生产工厂要 `document.createElement`，Node 里没有 DOM，此前直接调会 13 项全失败）、
+  每页引用互不相同的 XObject、DCTDecode/DeviceRGB、MediaBox 方向与画布尺寸、
+  `3 Tr` + hex Tj、pdf.js 文字提取、公式不露 `\frac`/`\mathbb`/`quad` 且含 `∈ℝ`/`i²`、
+  ToUnicode 覆盖、无 FontFile、位图流字节对齐、字号单位、无孤行标题。
+- `latexToText.test.ts` 45 项、`exportDocx.test.ts` 15 项，均补上围栏块 / 裸 LaTeX / 嵌套分式。
+- `tsc --noEmit` 干净；`vitest run` **488 项全过（38 文件）**。
+- 真浏览器复验：在 **`file://` 的单文件产物**里走用户真实路径（搜索 → 结果卡 → 导出菜单）
+  导出 PDF 与 Word，再用 pdf.js 渲染核对 —— 文字可提取、无 LaTeX 源码、版式无重叠。
+
+## v1.8.0 (2026-10-06) —— 复制与导出文件能力重构（修"导出一半内容"）
+
+> 起点是一个很小的问题：**复制和导出增强**。往下查发现这条链路上叠着六个真问题，
+> 其中一个是**导出文件丢一半内容** —— 页面上渲染的知识脉络 / 试题 / 趣味知识
+> 三个区块在导出文件里整段消失，而"复制"出口一直有。
+>
+> 根因不是漏写了三个 `if`，而是**同一份 Markdown 被两份独立代码各写一遍**：
+> `SearchResults.handleCopy` 有一份手写拼接器，`generateKnowledgeNote` 又写一份。
+> 早先"导出丢失概览"那条 bug 就是它的产物，这次是同一个坑的更大一次发作。
+> 所以本版的重点不是补三个字段，是**消灭双写** —— 复制与导出从此共用同一来源。
+
+### 一、消灭双写：复制与导出共用同一序列化结果
+
+- 删除 `SearchResults.handleCopy` 里约 90 行的手写 Markdown 拼接器，改为直接复用
+  `generateKnowledgeNote(data).md`。两个出口从此**同一来源**，结构上不可能再漂移
+- 枚举文案（概念类型 / 题型 / 难度 / 趣味类型）抽到 `utils/knowledgeLabels.ts`：
+  之前定义在 `.tsx` 组件里，工具层要用只能反向 import，于是各写一份映射 ——
+  典型表现是页面上写「简答题」而导出里写「简答」。现为纯函数 + 显式传 `s`，
+  页面与导出共用，**枚举文案只有一个来源**
+
+### 二、补齐导出缺失字段（本次的核心修复）
+
+`generateKnowledgeNote` 此前**完全没有** `knowledgeContext` / `examQuestions` /
+`interestingFacts` 的分支，而这三个区块页面上都在渲染。现在三段在
+txt / md / html 三格式同步补齐：
+
+- **知识脉络**：前置知识 / 关联主题 / 学习路径 / 常用结论 / 易混辨析。学习路径与
+  常用结论**逐条编号列出**（原先若挤成一行，项数一多就读不出层次）
+- **试题**：题型 + 难度 + 题干 + 选项（A/B/C/D）+ 答案 + 解析 + 出处。带图的题会
+  留一行"本题原有配图无法随文字导出"—— 试题"如图"缺图就是道废题，不能让用户
+  直接答一道无图的题
+- **趣味知识**：标题 + 正文 + 类型标签
+- 三段顺序与页面上区块顺序一致（概览 → 思维导图 → 核心概念 → 知识脉络 → 试题 → 趣味知识）
+
+### 三、统一工具层：新增 `utils/clipboard.ts` 与 `utils/serialize.ts`
+
+- **`copyText(text)`：三级降级且永不抛异常**
+  Async Clipboard → `execCommand` → 返回 `failed`。
+  为什么必须降级：本项目发布形态是**本地单文件 HTML**（`file://`，非安全上下文），
+  那里 `navigator.clipboard` 整个是 `undefined`，裸调会抛
+  `TypeError: Cannot read properties of undefined (reading 'writeText')`。
+  此前 `DocResult` / `SentenceResult` 就是裸调 —— 用户点了没反应也没提示。
+  两条路径在权限被拒时也会静默失败，所以**必须返回状态给调用方**，否则用户只会觉得应用坏了
+- **`safeFilename()`**：文件名清洗。直接拼 `${title}.md` 时，标题含
+  `\ / : * ? " < > |` 会被浏览器静默改名或下载失败（`a\b.txt` 在 Win32 上还会
+  被当子目录）；`CON` / `PRN` / `NUL` / `COM1` 是 Windows 保留设备名，直接写会
+  写到设备而非文件。含保留名单、全非法字符回退、超长截断
+- **`downloadText` / `triggerDownload` / `downloadImage`**：revoke 延后到下一帧
+  （同步 revoke 在 `file://` 下会取消下载）；MIME 统一补 `charset`（否则 Windows
+  记事本打开中文 txt 是乱码）
+- **`serialize.ts`**：查词 / 查句 / 文档 / 问答四类结果的纯文本序列化，
+  **各出口共用一份**。词条结果此前有三个出口（复制 / 导出 / 收藏详情），
+  拼字符串各写一次必然漂移
+
+### 四、复制与导出的反馈从"静默"变成"可见"
+
+新增 `components/ui/ActionBar.tsx`（`useActionFeedback` / `copyWithFeedback` /
+`CopyButton` / `ActionFeedbackToast`）与 `components/ui/ExportMenu.tsx`
+（统一下拉菜单，自适应宽度 + Esc 关闭 + 点击外部关闭）。
+
+文案集中在 `common.exportActions`（**唯一一处**），关键是有 `copyFailed`：
+复制失败必须让用户知道，否则"点了没反应"和"应用坏了"在用户眼里没有区别。
+`exportPdfHint` 说明 PDF 会走打印对话框 —— 否则用户会以为点了没反应。
+
+### 五、新增 Word（.docx）导出
+
+- `utils/exportDocx.ts`：JSZip + 手写最小 OOXML（`[Content_Types].xml` /
+  `_rels` / `word/document.xml` / `styles.xml` / `numbering.xml`）。
+  不引 `docx` 包的考量：本项目导出内容是纯文字 + 标题 + 列表，
+  自己拼 XML 约 300 行，换来"零新增运行时代码体积"的收益 ——
+  与"单文件 HTML 内联发布"的产物体积约束直接相关
+- 标题层级 → Word Heading 样式；`- ` / `1. ` 列表 → 带编号定义的真实列表
+- 行内公式降级为可读文本：`\frac{a}{b}` → `(a)/(b)`。
+  **带参数的命令必须先于花括号转括号处理** —— 顺序反了会得到 `frac (a)(b)`，
+  读起来像连乘，除法语义丢失（已锁测试）
+- `w:eastAsia="Microsoft YaHei"` 是中文正常显示的关键：OOXML 里中西文各走一套
+  字体属性，只设 `w:ascii`（西文）时中文会落到 Word 默认字体，部分系统上是方框
+- 覆盖：知识笔记（docx / md / html / txt / pdf）、文档（docx / pdf / md / html / txt）、
+  词条（docx / md / txt）、问答（md / txt）
+
+### 六、移除 jspdf：PDF 改走浏览器打印
+
+- **实测结论**：jsPDF 内置 14 种标准字体全是 latin-1 编码，
+  `doc.text('中文测试')` 写进 PDF 后内容流是 `N-e mK Õ` —— 每个汉字被打成两个
+  乱码字节。仓库内无可嵌入的中文字体（`docs/references/_shared/fonts` 只有
+  Geist / Instrument 等拉丁字体）
+- 改走隐藏 iframe + `print()`，由系统字体渲染，中文必然正常；顺带能带上
+  已渲染的 Markdown 结构。代价是走一次打印对话框（用户选"另存为 PDF"）——
+  这是浏览器沙箱里不引字体就拿到正确中文 PDF 的唯一办法
+- 依赖变更：`+ jszip` / `- jspdf` / `- @types/jspdf`，
+  **单文件产物从 3.2 MB 降到 2.5 MB**
+
+### 七、补齐功能缺口
+
+- `WordResult`（查词）此前**没有任何复制/导出入口**，查到的生词只能手抄进生词本
+- 收藏详情页四类内容（知识 / 查词 / 翻译 / 文档）此前**完全取不出来**，
+  现统一接入复制 + 导出；知识卡片额外支持 docx 与 pdf
+- 查句的复制从"只有译文"改为"原文 + 译文 + 关键词 + 语法说明"
+  ——只给译文会丢掉对照关系，而原文就在屏幕上
+- 移除 services 层死代码 `document.export`（`baseAIProvider` 实现恒返回
+  `text/plain`、忽略 format 参数；mock 里的 PDF 是手写伪造字节串；全项目无业务调用点）
+
+### 八、测试
+
+- 新增 `utils/__tests__/clipboard.test.ts`（14 项）：文件名清洗全部规则、
+  file:// 降级、权限拒绝降级、两路皆失败、异常收敛、临时节点清理
+- 扩充 `utils/__tests__/export.test.ts`（3 → 15 项）：锁住三字段在
+  txt/md/html 三格式都不丢、区块顺序、选项字母、出处、空值不产 `undefined`
+- 新增 `utils/__tests__/exportDocx.test.ts`（13 项）：zip 必需部件、
+  PK 魔数、标题/列表样式映射、XML 转义防注入、中文 eastAsia 字体、
+  公式降级保除法语义
+- `tsc --noEmit` 干净；`vitest run` **421 项全过（36 文件）**
+
 ## v1.7.2 (2026-09-30) —— 查词/翻译接入统一续写链路 + 演示数据补齐
 
 > 本版起点是一个用户实测报错：**点关键词跳转查词时报「Failed to parse JSON response」**。

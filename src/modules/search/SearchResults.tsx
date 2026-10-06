@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
-import { KnowledgeCardData, GeneratedKnowledge, MindMapNode } from '../../types';
-import { exportKnowledgeNote } from '../../utils/export';
+import { KnowledgeCardData, GeneratedKnowledge } from '../../types';
+import { exportKnowledgeNote, generateKnowledgeNote, type NoteExportFormat } from '../../utils/export';
 import {
   KnowledgeContentView,
   normalizeGenerated,
-  conceptTypeLabel,
-  examTypeLabel,
 } from '../../components/knowledge/KnowledgeContentView';
+import { CopyButton, ActionFeedbackToast, useActionFeedback } from '../../components/ui/ActionBar';
+import { ExportMenu } from '../../components/ui/ExportMenu';
 import { useStrings, fmt } from '../../hooks/useStrings';
 
 interface SearchResultsProps {
@@ -66,114 +66,11 @@ export function WaitTimer() {
  */
 export function SearchResults({ generatedData: rawGeneratedData, loading, generatingStep, onToggleFavorite, isFavorite }: SearchResultsProps) {
   const s = useStrings();
+  const { feedback, notify } = useActionFeedback();
   // 渲染前统一归一化（新数据经 provider 清洗是幂等的；旧 localStorage 脏数据在此被修复）
   const generatedData = useMemo(() => normalizeGenerated(rawGeneratedData), [rawGeneratedData]);
 
-  const handleExport = () => {
-    if (!generatedData) return;
-    exportKnowledgeNote(generatedData, 'md');
-  };
-
-  const handleCopy = async () => {
-    if (!generatedData) return;
-    
-    let markdown = `# ${generatedData.topic}\n\n`;
-
-    if (generatedData.summary) {
-      markdown += `${generatedData.summary}\n\n`;
-    }
-
-    if (generatedData.mindMap && generatedData.mindMap.length > 0) {
-      markdown += `## ${s.search.sections.mindMap}\n\n`;
-      const walk = (nodes: MindMapNode[], depth: number) => {
-        for (const n of nodes) {
-          markdown += `${'  '.repeat(depth)}- ${n.title}${n.description ? `：${n.description}` : ''}\n`;
-          if (n.children?.length) walk(n.children, depth + 1);
-        }
-      };
-      walk(generatedData.mindMap, 0);
-      markdown += '\n';
-    }
-
-    if (generatedData.concepts && generatedData.concepts.length > 0) {
-      markdown += `## ${s.search.sections.coreConcepts}\n\n`;
-      // 总述是核心概念的一部分，导出时放在概念列表之前
-      if (generatedData.conceptsOverview) {
-        markdown += `**${s.search.sections.overview}：** ${generatedData.conceptsOverview}\n\n`;
-      }
-      generatedData.concepts.forEach((concept) => {
-        markdown += `### ${conceptTypeLabel(s, concept.type)}: ${concept.title}\n\n`;
-        markdown += `**${s.search.concept.elementary}:** ${concept.content.elementary}\n\n`;
-        markdown += `**${s.search.concept.advanced}:** ${concept.content.advanced}\n\n`;
-        if (concept.notation) {
-          markdown += `\`\`\`math\n${concept.notation}\n\`\`\`\n\n`;
-        }
-        if (concept.keyPoints && concept.keyPoints.length > 0) {
-          markdown += `**${s.search.concept.keyPoints}:**\n`;
-          concept.keyPoints.forEach((kp) => { markdown += `- ${kp}\n`; });
-          markdown += '\n';
-        }
-        if (concept.pitfalls && concept.pitfalls.length > 0) {
-          markdown += `**${s.search.concept.pitfalls}:**\n`;
-          concept.pitfalls.forEach((p) => { markdown += `- ${p}\n`; });
-          markdown += '\n';
-        }
-        if (concept.example) {
-          markdown += `**${s.search.concept.example}:** ${concept.example}\n\n`;
-        }
-      });
-    }
-
-    if (generatedData.knowledgeContext) {
-      const kc = generatedData.knowledgeContext;
-      markdown += `## ${s.search.sections.knowledgeContext}\n\n`;
-      if (kc.prerequisites.length > 0) markdown += `- **${s.search.context.prerequisites}:** ${kc.prerequisites.join('、')}\n`;
-      if (kc.relatedTopics.length > 0) markdown += `- **${s.search.context.relatedTopics}:** ${kc.relatedTopics.join('、')}\n`;
-      if (kc.learningPath.length > 0) {
-        markdown += `\n**${s.search.context.learningPath}:**\n`;
-        kc.learningPath.forEach((step, i) => { markdown += `${i + 1}. ${step}\n`; });
-      }
-      if (kc.commonConclusions && kc.commonConclusions.length > 0) {
-        markdown += `\n**${s.search.context.conclusions}:**\n`;
-        kc.commonConclusions.forEach((c, i) => { markdown += `${i + 1}. ${c}\n`; });
-      }
-      if (kc.confusables && kc.confusables.length > 0) {
-        markdown += `\n**${s.search.context.distinctions}:**\n`;
-        kc.confusables.forEach((c) => { markdown += `- **${c.topic}：** ${c.difference}\n`; });
-      }
-      markdown += '\n';
-    }
-
-    if (generatedData.examQuestions && generatedData.examQuestions.length > 0) {
-      markdown += `## ${s.search.sections.examQuestions}\n\n`;
-      generatedData.examQuestions.forEach((q) => {
-        markdown += `### [${examTypeLabel(s, q.type)}] ${q.question}\n\n`;
-        if (q.options && q.options.length > 0) {
-          q.options.forEach((opt, i) => { markdown += `${String.fromCharCode(65 + i)}. ${opt}\n`; });
-          markdown += '\n';
-        }
-        markdown += `**${s.search.actions.answer}** ${q.answer}\n\n**${s.search.actions.explanation}** ${q.explanation}\n\n`;
-      });
-    }
-
-    if (generatedData.interestingFacts && generatedData.interestingFacts.length > 0) {
-      markdown += `## ${s.search.sections.interestingFacts}\n\n`;
-      generatedData.interestingFacts.forEach((f) => {
-        markdown += `### ${f.title}\n\n${f.content}\n\n`;
-      });
-    }
-
-    try {
-      await navigator.clipboard.writeText(markdown);
-    } catch {
-      const textarea = document.createElement('textarea');
-      textarea.value = markdown;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-    }
-  };
+  const handleExport = (format: NoteExportFormat) => exportKnowledgeNote(generatedData!, format);
 
   if (loading && !generatedData) {
     return (
@@ -221,24 +118,29 @@ export function SearchResults({ generatedData: rawGeneratedData, loading, genera
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
             </svg>
           </button>
-          <button
-            onClick={handleCopy}
-            className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-sm text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700 transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-            {s.common.copy}
-          </button>
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-lg text-sm text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-700 transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-            </svg>
-            {s.search.actions.exportMarkdown}
-          </button>
+          <div className="relative">
+            <CopyButton
+              text={generatedData ? generateKnowledgeNote(generatedData).md : ''}
+              label={s.common.copy}
+              strings={s.common.exportActions}
+              notify={notify}
+            />
+            <ActionFeedbackToast feedback={feedback} />
+          </div>
+          <ExportMenu
+            triggerLabel={s.doc.export}
+            exportingLabel={s.doc.exporting}
+            notify={notify}
+            notifyStrings={s.common.exportActions}
+            options={[
+              { format: 'docx', label: s.common.exportActions.exportDocx, icon: '📄' },
+              { format: 'md', label: s.doc.exportMd, icon: '📝' },
+              { format: 'html', label: s.doc.exportHtml, icon: '🌐' },
+              { format: 'txt', label: s.doc.exportTxt, icon: '🗒️' },
+              { format: 'pdf', label: s.common.exportActions.exportPdf, icon: '📕', hint: s.common.exportActions.exportPdfHint },
+            ]}
+            onSelect={(format) => handleExport(format as NoteExportFormat)}
+          />
         </div>
       </div>
 

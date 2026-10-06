@@ -5,7 +5,9 @@ import { Button } from '../../components/ui/Button';
 import { Tag } from '../../components/ui/Tag';
 import { TermList } from '../../components/ui/TermList';
 import { GenerationNotice } from '../../components/ui/GenerationNotice';
-import { downloadFile } from '../../utils/export';
+import { downloadText } from '../../utils/clipboard';
+import { serializeSentenceResult } from '../../utils/serialize';
+import { CopyButton, ActionFeedbackToast, useActionFeedback } from '../../components/ui/ActionBar';
 import { useFavorites } from '../../hooks/useFavorites';
 import { useSpeechSynthesis } from '../../hooks/useSpeechSynthesis';
 import { languageLabel, languageSpeech } from '../../i18n/languages';
@@ -41,6 +43,7 @@ export function SentenceResult({ result, onLookup, onSearchTopic }: SentenceResu
   const usedStyle = styles.find((st) => st.id === result.style)?.label ?? result.style;
   const { favorites, isFavorite, addFavorite, removeFavorite } = useFavorites();
   const fav = isFavorite(result, 'translation');
+  const { feedback, notify } = useActionFeedback();
   const [speaking, setSpeaking] = useState<'original' | 'translation' | null>(null);
   const { speak, isSpeaking } = useSpeechSynthesis();
 
@@ -96,27 +99,25 @@ export function SentenceResult({ result, onLookup, onSearchTopic }: SentenceResu
     setTimeout(() => setSpeaking(null), 5000);
   };
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(result.translation);
-  };
+  /**
+   * 复制内容：原文 + 译文 + 关键词 + 语法说明。
+   *
+   * 此前只复制 `result.translation` 一段译文。实际用途几乎总是"贴给别人看/
+   * 存档对照"，只给译文就丢掉了对照关系，而原文就在屏幕上，用户得手动再选一次。
+   * 与导出 txt 共用 `serializeSentenceResult`（`includeMeta=false` 时不带页脚），
+   * 两个出口内容一致。
+   */
+  const handleCopyText = useMemo(
+    () => serializeSentenceResult(result, false),
+    [result]
+  );
 
   const handleExport = () => {
-    const keywordsText = result.keywords
-      ? `\n\n${s.translate.keywords}：` +
-        result.keywords.map((k) => (k.definition ? `${k.term}（${k.definition}）` : k.term)).join('、')
-      : '';
-    const grammarText = result.grammarNotes
-      ? `\n\n${s.translate.grammarNote}：\n` + result.grammarNotes.map((g) => '- ' + g).join('\n')
-      : '';
-    const content =
-      `${s.translate.original}：` + result.original +
-      `\n${s.translate.translated}：` + result.translation +
-      `\n${s.translate.exportStyle}：` + result.style +
-      keywordsText + grammarText +
-      `\n\n---\n${s.exportNote.exportedAt}: ` + new Date().toLocaleString() +
-      `\n${s.exportNote.source}: ${s.app.brand}`;
-    const filename = s.translate.exportFilePrefix + result.original.slice(0, 20) + '.txt';
-    downloadFile(content, filename, 'txt');
+    downloadText(
+      serializeSentenceResult(result, true),
+      `${s.translate.exportFilePrefix}${result.original.slice(0, 20)}.txt`,
+      'text/plain;charset=utf-8'
+    );
   };
 
   const handleToggleFavorite = () => {
@@ -186,12 +187,16 @@ export function SentenceResult({ result, onLookup, onSearchTopic }: SentenceResu
           </span>
         </div>
         <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={handleCopy}>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-            {s.translate.copyTranslation}
-          </Button>          <Button variant="secondary" size="sm" onClick={handleExport}>
+          <div className="relative">
+            <CopyButton
+              text={handleCopyText}
+              label={s.translate.copyTranslation}
+              strings={s.common.exportActions}
+              notify={notify}
+            />
+            <ActionFeedbackToast feedback={feedback} />
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => { handleExport(); notify('ok', s.common.exportActions.exportDone); }}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>

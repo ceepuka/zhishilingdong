@@ -1,0 +1,470 @@
+import JSZip from 'jszip';
+import { readableLatexInText } from './latexToText';
+import { getCurrentStrings } from '../i18n/strings';
+import { safeFilename, triggerDownload } from './clipboard';
+
+/**
+ * Word（.docx）导出 —— 用 JSZip 手写最小 OOXML，不引 `docx` 包。
+ *
+ * **为什么不直接用现成的 PDF 方案那套**：docx 本质是 zip 包（`[Content_Types].xml`
+ * + `word/document.xml` + 关系文件），`docx` 这类库主要价值在自动处理编号、
+ * 表格样式、图片嵌入 —— 本项目导出内容是纯文字 + 标题 + 列表，
+ * 自己拼 XML 只有一百来行，却换来「零新增运行时代码体积」的收益。
+ * 注意这与项目"单文件 HTML 内联发布"的形式约束直接相关：
+ * 打包器会把所有 import 打进同一个 HTML，依赖越少产物越小。
+ *
+ * **为什么必须有它**：jsPDF 写中文实测是乱码（jsPDF 内置 14 种字体全是
+ * latin-1 编码，`text('中文')` 出来是 `N-e mK Õ`）。而 Word 走 OOXML 的
+ * UTF-8 XML，中文完全正常。所以 docx 才是"能真正拿到 Word 里用"的格式。
+ */
+
+/** OOXML 里 XML 特殊字符必须转义，漏一个整个文档在 Word 里就打不开 */
+function esc(text: string): string {
+  return String(text ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+/** 段落样式映射：我们的语义标题 → Word 内置 Heading 样式 */
+const HEADING_STYLE: Record<number, string> = {
+  1: 'Heading1',
+  2: 'Heading2',
+  3: 'Heading3',
+  4: 'Heading4',
+  5: 'Heading5',
+  6: 'Heading6',
+};
+
+/**
+ * 从 Markdown 提取行内 `$...$` / `$$...$$` 公式，替换成纯文本占位。
+ *
+ * docx 里塞不进 KaTeX 渲染结果（那需要图片或 OMML，太重），
+ * 所以公式以**可读的纯文本**形式出现 —— 至少可读、可编辑，
+ * 总比 `$E=mc^2$` 的美元符号裸露要好。
+ *
+ * 实现复用 `latexToText.ts`（与 PDF 导出同一份）——
+ * 公式降级规则必须只有一处：否则 Word 里显示 `(a)/(b)` 而 PDF 里显示
+ * `frac (a)(b)`，同一份内容两种出口又不一样了。
+ */
+
+type Block =
+  | { kind: 'heading'; level: number; text: string }
+  | { kind: 'paragraph'; text: string }
+  | { kind: 'bullets'; items: string[] }
+  | { kind: 'numbers'; items: string[] }
+  | { kind: 'quote'; text: string }
+  | { kind: 'rule' };
+
+/**
+ * 极简 Markdown → 结构化块。
+ *
+ * 只认导出内容里**实际会出现**的语法（标题 / 列表 / 引用 / 分隔线 / 段落）。
+ * 刻意不做完整 CommonMark：这里是导出通道不是渲染通道，
+ * 覆盖不全的代价是"少个缩进"，而引一个完整解析器会让产物大几十 KB。
+ */
+function parseMarkdown(md: string): Block[] {
+  const blocks: Block[] = [];
+  const lines = md.replace(/\r\n/g, '\n').split('\n');
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      i++;
+      continue;
+    }
+
+    // 分隔线（排除 `---` 表格分隔符那种三连符号的上下文，交由表格分支处理）
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      blocks.push({ kind: 'rule' });
+      i++;
+      continue;
+    }
+
+    const heading = /^(#{1,6})\s+(.*)$/.exec(trimmed);
+    if (heading) {
+      blocks.push({ kind: 'heading', level: heading[1].length, text: heading[2] });
+      i++;
+      continue;
+    }
+
+    // 引用块：连续 > 开头的内容合并成一段
+    if (/^>\s?/.test(trimmed)) {
+      const parts: string[] = [];
+      while (i < lines.length && /^>\s?/.test(lines[i].trim())) {
+        parts.push(lines[i].trim().replace(/^>\s?/, ''));
+        i++;
+      }
+      blocks.push({ kind: 'quote', text: parts.join(' ') });
+      continue;
+    }
+
+    // 无序 / 有序列表：连续同类行合并
+    const bullet = /^[-*+]\s+(.*)$/.exec(trimmed);
+    const numbered = /^(\d+)[.)]\s+(.*)$/.exec(trimmed);
+    if (bullet || numbered) {
+      const ordered = !!numbered;
+      const items: string[] = [];
+      while (i < lines.length) {
+        const t = lines[i].trim();
+        const b = /^[-*+]\s+(.*)$/.exec(t);
+        const n = /^(\d+)[.)]\s+(.*)$/.exec(t);
+        if (ordered && n) items.push(n[2]);
+        else if (!ordered && b) items.push(b[1]);
+        else if (!t) break; // 空行终止列表
+        else if (/^[-*+]\s+/.test(t) || /^\d+[.)]\s+/.test(t)) {
+          // 序列表里混进无序项：换个序号继续，别把两种混成一份
+          items.push(t.replace(/^(?:[-*+]|\d+[.)])\s+/, ''));
+        } else break;
+        i++;
+      }
+      blocks.push({ kind: ordered ? 'numbers' : 'bullets', items });
+      continue;
+    }
+
+    /**
+     * 表格：Markdown 表格是导出内容里唯一的表格形态（对比表）。
+     * docx 里的真表格需要 `w:tbl` + 网格定义，比段落重得多；
+     * 这里退化成「用双空格分隔的段落」—— 内容一字不丢，排版差一点，
+     * 比为了排版引入半套表格实现划算。
+     */
+    if (trimmed.includes('|') && i + 1 < lines.length && /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(lines[i + 1])) {
+      const rowTexts: string[] = [];
+      while (i < lines.length && lines[i].trim().includes('|')) {
+        const cells = lines[i].trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+        // 跳过 |---|---| 分隔行
+        if (!cells.every((c) => /^:?-{2,}:?$/.test(c) || c === '')) {
+          rowTexts.push(cells.join('　|　'));
+        }
+        i++;
+      }
+      blocks.push({ kind: 'paragraph', text: rowTexts.join('\n') });
+      continue;
+    }
+
+    // 普通段落：连续非空行合并（Markdown 软换行 = 同一段）
+    const parts: string[] = [];
+    while (i < lines.length) {
+      const t = lines[i].trim();
+      if (!t || /^#{1,6}\s/.test(t) || /^[-*+]\s+/.test(t) || /^\d+[.)]\s+/.test(t) || /^>\s?/.test(t) || /^(-{3,}|\*{3,}|_{3,})$/.test(t)) break;
+      parts.push(t);
+      i++;
+    }
+    blocks.push({ kind: 'paragraph', text: parts.join(' ') });
+  }
+
+  return blocks;
+}
+
+/** 单行文本 → OOXML 段落。支持 `**粗体**` 与 `` `等宽` ``（仅这两种，够用） */
+function renderRuns(text: string): string {
+  const raw = readableLatexInText(text);
+  // 先按 ** 和 ` 切段，段内做转义
+  const segments = raw.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter((s) => s !== '');
+  return segments
+    .map((seg) => {
+      const bold = /^\*\*[^*]+\*\*$/.test(seg);
+      const code = /^`[^`]+`$/.test(seg);
+      const body = esc(bold ? seg.slice(2, -2) : code ? seg.slice(1, -1) : seg);
+      if (!body) return '';
+      const props: string[] = [];
+      if (bold) props.push('<w:b/>');
+      if (code) props.push('<w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:shd w:val="clear" w:fill="F1F5F9"/>');
+      const rPr = props.length ? `<w:rPr>${props.join('')}</w:rPr>` : '';
+      return `<w:r>${rPr}<w:t xml:space="preserve">${body}</w:t></w:r>`;
+    })
+    .join('');
+}
+
+function paragraphXml(text: string, style?: string): string {
+  const pPr = style ? `<w:pPr><w:pStyle w:val="${style}"/></w:pPr>` : '';
+  return `<w:p>${pPr}${renderRuns(text)}</w:p>`;
+}
+
+function blocksToXml(blocks: Block[]): string {
+  const parts: string[] = [];
+
+  for (const block of blocks) {
+    switch (block.kind) {
+      case 'heading':
+        parts.push(paragraphXml(block.text, HEADING_STYLE[block.level] ?? 'Heading6'));
+        break;
+      case 'paragraph':
+        parts.push(paragraphXml(block.text));
+        break;
+      case 'bullets':
+      case 'numbers': {
+        const ordered = block.kind === 'numbers';
+        // 有序列表用 Word 内置 ListNumber 样式；它依赖 numbering 定义，
+        // 缺 numbering.xml 时 Word 会退回普通段落 —— 所以同时补一份最小的。
+        for (const item of block.items) {
+          const pPr = ordered
+            ? '<w:pPr><w:pStyle w:val="ListNumber"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="2"/></w:numPr></w:pPr>'
+            : '<w:pPr><w:pStyle w:val="ListBullet"/><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr>';
+          parts.push(`<w:p>${pPr}${renderRuns(item)}</w:p>`);
+        }
+        break;
+      }
+      case 'quote':
+        parts.push(
+          `<w:p><w:pPr><w:ind w:left="480"/><w:pBdr><w:left w:val="single" w:sz="18" w:space="8" w:color="94A3B8"/></w:pBdr></w:pPr>${renderRuns(block.text)}</w:p>`
+        );
+        break;
+      case 'rule':
+        parts.push(
+          '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="CBD5E1"/></w:pBdr></w:pPr></w:p>'
+        );
+        break;
+    }
+  }
+
+  return parts.join('');
+}
+
+/** 最小 numbering.xml：两个 abstractNum（项目符号 / 数字），供列表样式引用 */
+function numberingXml(): string {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:abstractNum w:abstractNumId="0">
+    <w:multiLevelType w:val="hybridMultilevel"/>
+    <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="bullet"/><w:lvlText w:val="•"/><w:lvlJc w:val="left"/>
+      <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr>
+      <w:rPr><w:rFonts w:ascii="Symbol" w:hAnsi="Symbol" w:hint="default"/></w:rPr></w:lvl>
+  </w:abstractNum>
+  <w:abstractNum w:abstractNumId="1">
+    <w:multiLevelType w:val="hybridMultilevel"/>
+    <w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:lvlJc w:val="left"/>
+      <w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl>
+  </w:abstractNum>
+  <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
+  <w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>
+</w:numbering>`;
+}
+
+/**
+ * styles.xml
+ *
+ * **`w:eastAsia="Microsoft YaHei"` 是中文能正常显示的关键**：OOXML 里中西文
+ * 各走一套字体属性，只设 `w:ascii`（西文）时中文会落到 Word 默认字体，
+ * 在部分系统上变成方框。雅黑是 Windows 通用中文字体，缺它时 Word 会自动回退。
+ */
+function stylesXml(): string {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:docDefaults>
+    <w:rPrDefault><w:rPr>
+      <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Microsoft YaHei" w:cs="Calibri"/>
+      <w:sz w:val="22"/><w:szCs w:val="22"/>
+    </w:rPr></w:rPrDefault>
+    <w:pPrDefault><w:pPr><w:spacing w:after="120" w:line="288" w:lineRule="auto"/></w:pPr></w:pPrDefault>
+  </w:docDefaults>
+  <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
+    <w:name w:val="Normal"/><w:qFormat/>
+  </w:style>
+${[1, 2, 3, 4, 5, 6]
+  .map(
+    (lv) => `  <w:style w:type="paragraph" w:styleId="Heading${lv}">
+    <w:name w:val="heading ${lv}"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:keepNext/><w:outlineLvl w:val="${lv - 1}"/><w:spacing w:before="${280 - lv * 30}" w:after="120"/></w:pPr>
+    <w:rPr><w:b/><w:color w:val="1E293B"/><w:sz w:val="${36 - lv * 3}"/></w:rPr>
+  </w:style>`
+  )
+  .join('\n')}
+  <w:style w:type="paragraph" w:styleId="Title">
+    <w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:jc w:val="center"/><w:spacing w:after="240"/></w:pPr>
+    <w:rPr><w:b/><w:color w:val="0D9488"/><w:sz w:val="44"/></w:rPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="ListBullet">
+    <w:name w:val="List Bullet"/><w:basedOn w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:numPr><w:numId w:val="1"/></w:numPr><w:spacing w:after="60"/></w:pPr>
+  </w:style>
+  <w:style w:type="paragraph" w:styleId="ListNumber">
+    <w:name w:val="List Number"/><w:basedOn w:val="Normal"/><w:qFormat/>
+    <w:pPr><w:numPr><w:numId w:val="2"/></w:numPr><w:spacing w:after="60"/></w:pPr>
+  </w:style>
+</w:styles>`;
+}
+
+/**
+ * 生成 docx Blob。
+ *
+ * `md` 是完整 Markdown（含一级标题作为文档标题）。导出内容里公式以
+ * 可读纯文本出现 —— docx 渲染真公式需要 OMML 或图片，成本远大于收益。
+ *
+ * @param landscapeAppendix 横向附录页（思维导图页）。docx 的横向页靠**分节符**
+ *   实现：正文节的 `sectPr` 要放在**正文最后一段的 pPr 里**（它标记"这一节结束"，
+ *   写在 body 末尾会让整节方向都错），最后一节的 `sectPr` 放 body 末尾。
+ *   不传则不生成，文档只有纵向一页节。
+ */
+export async function buildDocx(
+  md: string,
+  title: string,
+  landscapeAppendix?: { title: string; lines: string[] }
+): Promise<Blob> {
+  const s = getCurrentStrings();
+
+  const zip = new JSZip();
+
+  zip.file(
+    '[Content_Types].xml',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>`
+  );
+
+  zip.folder('_rels')!.file(
+    '.rels',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>`
+  );
+
+  zip.folder('word')!
+    .file(
+      '_rels/document.xml.rels',
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
+</Relationships>`
+    )
+    .file('styles.xml', stylesXml())
+    .file('numbering.xml', numberingXml());
+
+  // 文档正文：一级标题改用 Title 样式居中，其余保持原层级
+  const blocks = parseMarkdown(md);
+  const bodyBlocks: Block[] = blocks.map((b, idx) =>
+    b.kind === 'heading' && b.level === 1 && idx === 0 ? { kind: 'paragraph', text: b.text } : b
+  );
+
+  const timestamp = new Date().toISOString();
+  zip.folder('docProps')!
+    .file(
+      'core.xml',
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <dc:title>${esc(title)}</dc:title>
+  <dc:creator>${esc(s.app.brand)}</dc:creator>
+  <cp:lastModifiedBy>${esc(s.app.brand)}</cp:lastModifiedBy>
+  <dcterms:created xsi:type="dcterms:W3CDTF">${timestamp}</dcterms:created>
+  <dcterms:modified xsi:type="dcterms:W3CDTF">${timestamp}</dcterms:modified>
+</cp:coreProperties>`
+    )
+    .file(
+      'app.xml',
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">
+  <Application>${esc(s.app.brand)}</Application>
+</Properties>`
+    );
+
+  const titleXml = `<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr>${renderRuns(title)}</w:p>`;
+
+  const portraitSect =
+    `<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>` +
+    `<w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="851" w:footer="992" w:gutter="0"/>` +
+    `</w:sectPr>`;
+  const landscapeSect =
+    `<w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>` +
+    `<w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="851" w:footer="992" w:gutter="0"/>` +
+    `</w:sectPr>`;
+
+  /**
+   * 附录（思维导图横向页）。
+   * 导图内容用**缩进层级 + 项目符号**表达：Word 里的形状与连线要 DrawingML，
+   * 成本远大于收益；横向页足够宽，一层一行不挤，结构与层级完整保留。
+   */
+  const appendixXml = landscapeAppendix
+    ? `<w:p><w:pPr>${portraitSect}</w:pPr></w:p>` +
+      `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>${renderRuns(landscapeAppendix.title)}</w:p>` +
+      landscapeAppendix.lines
+        .map((line) => {
+          const indent = line.match(/^\s*/)?.[0].length ?? 0;
+          const text = line.trim();
+          if (!text) return '';
+          const indentTwips = Math.min(6, Math.floor(indent / 2)) * 240;
+          const pPr = indentTwips > 0 ? `<w:pPr><w:ind w:left="${indentTwips}"/></w:pPr>` : '';
+          return `<w:p>${pPr}${renderRuns(text)}</w:p>`;
+        })
+        .join('')
+    : '';
+
+  zip.file(
+    'word/document.xml',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    ${titleXml}
+    ${blocksToXml(bodyBlocks)}
+    ${appendixXml}
+    ${landscapeAppendix ? landscapeSect : portraitSect}
+  </w:body>
+</w:document>`
+  );
+
+  return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+}
+
+/**
+ * 导出为 Word 文件。
+ *
+ * 单独 `async`：JSZip 是异步的，调用方必须 await —— 之前所有导出都是同步的，
+ * 接进来的组件要按异步处理（`exporting` 状态正好覆盖这个窗口）。
+ */
+export async function exportDocx(md: string, title: string, fallbackName?: string): Promise<void> {
+  const blob = await buildDocx(md, title);
+  triggerDownload(blob, `${safeFilename(title, fallbackName ?? 'document')}.docx`);
+}
+
+interface MindMapLike {
+  title: string;
+  children?: MindMapLike[];
+}
+
+/**
+ * 知识笔记 → Word，**思维导图单独一张横向页**。
+ *
+ * 用户要求"思维导图单独给一页（横向）"。正文复用 `generateKnowledgeNote().md`
+ * —— 与 txt / md / html / pdf 出口**同一份序列化**，避免两处内容漂移。
+ */
+export async function exportKnowledgeDocx(
+  md: string,
+  title: string,
+  mindMap: MindMapLike[] | undefined,
+  fallbackTitle: string
+): Promise<void> {
+  const s = getCurrentStrings();
+
+  let appendix: { title: string; lines: string[] } | undefined;
+  if (mindMap && mindMap.length > 0) {
+    const lines: string[] = [];
+    // 缩进表示层级：每层 4 空格，与 buildDocx 里的 indentTwips 换算对应
+    const walk = (nodes: MindMapLike[], depth: number) => {
+      nodes.forEach((n) => {
+        lines.push(`${'    '.repeat(depth)}- ${n.title}`);
+        if (n.children?.length) walk(n.children, depth + 1);
+      });
+    };
+    walk(mindMap, 0);
+    appendix = { title: `${title} · ${s.search.sections.mindMap}`, lines };
+  }
+
+  const blob = await buildDocx(md, title, appendix);
+  triggerDownload(blob, `${safeFilename(title, fallbackTitle)}.docx`);
+}

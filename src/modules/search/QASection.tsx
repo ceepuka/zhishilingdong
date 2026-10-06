@@ -1,8 +1,14 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { ChatMessage } from '../../types';
 import { Button } from '../../components/ui/Button';
 import { Card } from '../../components/ui/Card';
 import { LatexText } from '../../components/ui/LatexText';
+import { CopyButton, ActionFeedbackToast, useActionFeedback } from '../../components/ui/ActionBar';
+import { ExportMenu } from '../../components/ui/ExportMenu';
+import { downloadFile } from '../../utils/export';
+import { safeFilename } from '../../utils/clipboard';
+import { serializeQA } from '../../utils/serialize';
+import { getCurrentStrings } from '../../i18n/strings';
 import { useStrings } from '../../hooks/useStrings';
 
 interface QASectionProps {
@@ -18,6 +24,7 @@ export function QASection({ messages, onSend, hasContext, hideInput, isLoading }
   const quickQuestions = s.search.followUpExamples;
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { feedback, notify } = useActionFeedback();
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -40,38 +47,16 @@ export function QASection({ messages, onSend, hasContext, hideInput, isLoading }
   const title = hasContext ? s.search.qa.followUpTitle : s.search.qa.title;
   const placeholder = hasContext ? s.search.qa.followUpPlaceholder : s.search.qa.defaultPlaceholder;
 
-  const formatQAText = useCallback(() => {
-    return messages
-      .map((msg) => (msg.role === 'user' ? `Q: ${msg.content}` : `A: ${msg.content}`))
-      .join('\n\n');
-  }, [messages]);
+  /** 复制内容：纯文本 Q/A 串（`serializeQA` 与导出口径共用一份） */
+  const copyTextValue = useMemo(() => serializeQA(messages), [messages]);
 
-  const handleCopy = async () => {
-    const text = formatQAText();
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // fallback
-      const textarea = document.createElement('textarea');
-      textarea.value = text;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-    }
-  };
-
-  const handleExport = () => {
-    const text = formatQAText();
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'qa-dialog.txt';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const handleExport = (format: 'txt' | 'md') => {
+    // 走 downloadFile 而不是自己拼 Blob + <a>：文件名清洗、charset、revoke
+    // 延迟全在那一层。这里原来手写了一份，与 utils/export.ts 的实现重复。
+    const s = getCurrentStrings();
+    const filename = `${safeFilename(s.search.qa.title, 'qa-dialog')}.${format}`;
+    const content = format === 'md' ? serializeQA(messages, true) : copyTextValue;
+    downloadFile(content, filename, format === 'md' ? 'text/markdown' : 'text/plain');
   };
 
   return (
@@ -81,24 +66,25 @@ export function QASection({ messages, onSend, hasContext, hideInput, isLoading }
 
         {messages.length > 0 && (
           <div className="flex items-center gap-2 mb-4">
-            <button
-              onClick={handleCopy}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-500 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              </svg>
-              {s.common.copy}
-            </button>
-            <button
-              onClick={handleExport}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-500 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              {s.doc.export}
-            </button>
+            <div className="relative">
+              <CopyButton
+                text={copyTextValue}
+                label={s.common.copy}
+                strings={s.common.exportActions}
+                notify={notify}
+              />
+              <ActionFeedbackToast feedback={feedback} />
+            </div>
+            <ExportMenu
+              triggerLabel={s.doc.export}
+              notify={notify}
+              notifyStrings={s.common.exportActions}
+              options={[
+                { format: 'md', label: s.doc.exportMd, icon: '📝' },
+                { format: 'txt', label: s.doc.exportTxt, icon: '🗒️' },
+              ]}
+              onSelect={(format) => handleExport(format as 'txt' | 'md')}
+            />
           </div>
         )}
 

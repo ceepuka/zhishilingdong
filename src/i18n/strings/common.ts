@@ -29,6 +29,29 @@ export const commonEn = {
     daysAgo: '{n}d ago',
     aiKeyRequired: 'Please configure an AI model API key first',
     optional: 'optional',
+
+    /**
+     * 复制 / 导出反馈。
+     *
+     * 归在 `common` 下而不是各模块：这两个动作横跨全部模块
+     * （查词 / 查句 / 搜索 / 问答 / 文档 / 收藏），文案必须**只有一处**。
+     * 尤其 `copyFailed` 不能省 —— 两条复制路径（Async Clipboard / execCommand）
+     * 在权限被拒或浏览器策略下都会静默失败，没有提示用户就只会觉得"这应用坏了"。
+     */
+    exportActions: {
+      copied: 'Copied to clipboard',
+      copyFailed: 'Copy failed — please select the text and copy manually',
+      exportDone: 'File downloaded',
+      exportFailed: 'Export failed, please try again',
+      exportDocx: 'Export as Word',
+      exportPdf: 'Export as PDF',
+      /** PDF 走内置生成器：中文字体由阅读器提供，文字可复制（不再走浏览器打印） */
+      exportPdfHint: 'Chinese text stays selectable and searchable',
+      downloadImage: 'Download image',
+      imageOpened: 'Opened in a new tab (cross-origin images can only be opened this way)',
+      /** 试题配图无法随文字导出时留下的说明，避免用户直接答一道无图的题 */
+      figureOmitted: '(This question has a figure that cannot be exported with the text)',
+    },
   },
 
   app: {
@@ -102,6 +125,19 @@ export const commonZh: CommonStrings = {
     daysAgo: '{n}天前',
     aiKeyRequired: '请先配置AI模型密钥',
     optional: '可选',
+
+    exportActions: {
+      copied: '已复制到剪贴板',
+      copyFailed: '复制失败，请手动选中文本复制',
+      exportDone: '文件已下载',
+      exportFailed: '导出失败，请重试',
+      exportDocx: '导出为 Word',
+      exportPdf: '导出为 PDF',
+      exportPdfHint: '中文可选中、可搜索（不再需要「另存为 PDF」）',
+      downloadImage: '下载图片',
+      imageOpened: '已在新标签页打开（跨域图片只能这样保存）',
+      figureOmitted: '（本题原有配图，无法随文字导出）',
+    },
   },
 
   app: {
