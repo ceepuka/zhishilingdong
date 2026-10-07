@@ -110,6 +110,8 @@ v1.7.3 复制与导出重构 + 公式/PDF 自研 + 口径对齐 + 示意图导�
 
 **详细技术说明**：`docs/versions.md` v1.7.3（含「附：复制与导出文件能力重构」）、`docs/design.md` §10.9、`docs/architecture.md` §16。
 
+**发布**：2026-10-07 发布 `v1.7.3` —— 附注 tag + GitHub Release（附件 `zhishilingdong-v1.7.3.html` 2,739,989 字节 / `usage-v1.7.3.txt`），匿名复验远端 sha256 与本地产物逐字节一致 → https://github.com/ceepuka/zhishilingdong/releases/tag/v1.7.3
+
 ## v1.7.0 版本工作明细（已完成，保留备查）
 
 ### 已完成任务
@@ -258,6 +260,7 @@ v1.7.3 复制与导出重构 + 公式/PDF 自研 + 口径对齐 + 示意图导�
 | 10-07 | 用户第二轮实测：Word vs PDF 三条不足 | ✅ 完成 | 首标题格式不一致 / 多了冗余内容 / 所有文档丢示意图 |
 | 10-07 | m046 口径对齐 + 示意图导出 | ✅ 完成 | 首标题同文丢弃·异文保留 Heading1 + `Title` 样式对齐 PDF；`stripMindMapSection` 剥掉重复的导图大纲；新增 `utils/exportFigures.ts` 采集层（三字段原先零引用）、Word 统一 rId/media 分配器；修 `svgWithIntrinsicSize` 子元素尺寸误判 |
 | 10-07 | 验证 + 文档同步 | ✅ 完成 | tsc 干净、vitest 529 例/40 文件全绿、端到端抓 Blob 字节核对；versions/history/issues/todo/README/convention/design/architecture/worklog/progress 全部同步 |
+| 10-07 | **发布 v1.7.3** | ✅ 完成 | `npm run release` → 2.61 MB 单文件 HTML；tag `v1.7.3` + GitHub Release（匿名复验 sha256 与本地产物逐字节一致）；**在发布产物上**复跑 `file://` 实测与导出端到端（Word 137,622 / PDF 516,260 字节）；仓库卫生：`推荐文章-知识灵动助手.md` 移出仓库、删未跟踪文件 |
 
 ### 2026-09-20（m034 中断提示衔接内容末尾 + m035~m040 最后浏览时刻登记、存储改造、旧构建误判与落盘可靠性）
 

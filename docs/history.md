@@ -1,6 +1,6 @@
 # 演变历史
 
-## 2026-10-06 ~ 10-07（复制与导出重构 + 公式/PDF 修复 + 导图改截图 + Word/PDF 口径对齐与示意图导出）
+## 2026-10-06 ~ 10-07（复制与导出重构 + 公式/PDF 修复 + 导图改截图 + Word/PDF 口径对齐与示意图导出 → 发布 v1.7.3）
 
 > 版本号更正：本轮工作原被拆成 `v1.8.0`（复制/导出重构）与 `v1.9.0`（公式/PDF）两个号，
 > 但**两批改动从未分别对外发布**。按「未发布的改动不占号、MINOR 留给路线图」的规则，
@@ -126,6 +126,27 @@
 
 产物 2.61 MB，发布 **v1.7.3**（四轮改动合并为一次发布；`1.8.0` 号段保留给"移动端适配"）。
 技术细节见 `docs/versions.md` 的 v1.7.3 一条（含「附：复制与导出文件能力重构」）。
+
+### 发布（v1.7.3，2026-10-07）
+
+- `npm run release` → `release/知识灵动助手.html`（2.61 MB）+ `使用说明.txt`；前置链 `scripts/check-version.js`（六处版本号一致）与 `tsc --noEmit` 均通过；**产物不入库**
+- commit `245d8df` / `4815b1e` → `main`（`cf69235..4815b1e`）；建**附注 tag** `v1.7.3` 并推送 → Release
+  `https://github.com/ceepuka/zhishilingdong/releases/tag/v1.7.3`
+- 附件 `zhishilingdong-v1.7.3.html`（2,739,989 字节）/ `usage-v1.7.3.txt`，中文名放 `label`
+- **匿名（不带 token）下载附件复验**：HTML 实际 2,739,989 字节、sha256 `3ecf23b8…` 与**本地产物逐字节一致**；
+  远端 Release 列表只剩 `v1.7.3` / `v1.7.2` / `v1.7.1`，误发的 `v1.9.0` 无残留
+- **产物结构自检用标签口径，不用全局字符串计数**（这是本轮踩到的口径问题）：真正 `<script>` 块 **2 个**
+  （主题引导 + 主 bundle）与闭标签 2 个平衡；`<script src=` **0**、外部样式表 **0**；
+  内联 JS 里的 `</script` 已转义成 `<\/script`。若按裸字符串数 `<script` 会数到 4 ——
+  多出的 2 次命中是打包进 bundle 的 React DOM `"<script><\/script>"` 片段与提示词模板里的 `<script>` 字样，**不是漏转义**
+- **`file://` 真浏览器实测产物**：应用挂载、localStorage 可写可回读、Mock 搜索端到端渲染，
+  **0 console error / 0 pageerror / 0 失败请求**；provider CORS 预检矩阵全通（OpenAI 那条超时是本机网络，非产物问题）
+- **在发布产物上复跑导出端到端**：Word 137,622 字节 / PDF 516,260 字节；`verify.cjs` 拆包 —— Word 侧
+  `figure1..4.png`、4 个 `r:embed` 与 media 一一对应且无重复无悬空、`Content_Types` 声明齐全、
+  正文无导图节点标题也无 LaTeX 源码残留、拿不到的远程图退成图题；PDF 侧 4 页（3 纵 + 1 横）、
+  `3 Tr` 70 处、文字可提取。3 条 `ERR_NAME_NOT_RESOLVED` 是离线环境取不到远程配图后的**预期降级**，不是缺陷
+- 仓库卫生（同日）：`推荐文章-知识灵动助手.md` 移出仓库到 `E:\Program\Workspace\` 作为**外部文件**保留（不入库）；
+  删除未跟踪的 `.tmp-mine`（`canvasRenderer` 导图段旧草稿）与 `docs/recommend-{mindmap,concept-card}.png`
 
 ## 2026-09-30（演示数据补齐 + 可点击目标全量守卫 + 发布 v1.7.2）
 

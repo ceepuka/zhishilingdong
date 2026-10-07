@@ -50,7 +50,17 @@
 - **2026-10-07 用户拍板**：第 4 步的"正文示意图导出"单看形态是能力新增（MINOR），因属"导出内容对不齐"这条缺陷链的收尾，**一并收进 v1.7.3**；记为唯一一次越界、不作先例。
 
 **第7步 文档同步**
-- `docs/versions.md`（v1.7.3 八节 + 版本号说明）、`docs/history.md`（真因五 + 第四轮修复要点 + 验证数字）、`docs/issues.md`（新增四条已解决 + 两条经验教训）、`docs/todo.md`、`README.md`、`docs/convention.md`（§7.5 + §8）、`docs/design.md`（新增 §10.9 导出层 + 修正 jspdf 残留）、`docs/architecture.md`（新增 §16 导出层 + 文件树 + 修正 jspdf 残留）、`docs/worklog.md`（本条）、`docs/progress.md`。
+- `docs/versions.md`（v1.7.3 八节 + 版本号说明）、`docs/history.md`（真因五 + 第四轮修复要点 + 验证数字）、`docs/issues.md`（新增四条已解决 + 两条经验教训）、`docs/todo.md`、`README.md`、`docs/convention.md`（§7.5 + §8）、`docs/design.md`（新增 §10.9 导出层 + 修正 jspdf 残留）、`docs/architecture.md`（新增 §16 导出层 + 文件树 + 修正 jspdf 残留）、`docs/worklog.md`（本条）、`docs/progress.md`、`docs/goal.md`。
+
+**第8步 发布 v1.7.3（2026-10-07）**
+- `npm run release`：版本门禁（`scripts/check-version.js` 六处一致）+ `tsc --noEmit` + 构建 + 内联 → `release/知识灵动助手.html`（2.61 MB）+ `使用说明.txt`；**产物不入库**。
+- commit `245d8df` / `4815b1e` 推上 `main`（`cf69235..4815b1e`，一次 push 成功）；建**附注 tag** `v1.7.3` 并推送。
+- `GH_TOKEN=$(git credential fill 取到的 token) node scripts/publish-release.mjs` → 建 Release `https://github.com/ceepuka/zhishilingdong/releases/tag/v1.7.3`，附件 `zhishilingdong-v1.7.3.html`（2,739,989 字节）/ `usage-v1.7.3.txt`，中文名放 `label`。
+- **匿名（不带 token）复验**：拉附件 2,739,989 字节、sha256 `3ecf23b8…` 与本地产物**逐字节一致**；远端 Release 列表只剩 v1.7.3 / v1.7.2 / v1.7.1，误发的 `v1.9.0` 无残留。
+- **产物自检改用标签口径**（本轮踩到一次口径问题）：真正的 `<script>` 块 2 个 / 闭标签 2 个平衡，`<script src=` 与外部样式表均为 0，内联 JS 的 `</script` 已转义；按裸字符串数 `<script` 会数到 4，多出的 2 次是打包进 bundle 的字符串，**不是漏转义**。
+- `file://` 真浏览器实测产物：挂载正常、localStorage 可写可回读、Mock 搜索端到端渲染、**0 console error / 0 pageerror / 0 失败请求**；provider CORS 预检矩阵全通（OpenAI 超时为本机网络）。
+- 在发布产物上复跑导出端到端：Word 137,622 字节 / PDF 516,260 字节；拆包核对 4 张图 + 4 个 `r:embed` 一一对应、无重复无悬空、正文无导图大纲与 LaTeX 残留、远程图退成图题；PDF 4 页（3 纵 + 1 横）、`3 Tr` 70 处、文字可提取。3 条 `ERR_NAME_NOT_RESOLVED` 为离线环境的预期降级。
+- 仓库卫生：`推荐文章-知识灵动助手.md` 移到仓库外（`E:\Program\Workspace\`）作为**外部文件**保留；删除未跟踪的 `.tmp-mine` 与 `docs/recommend-{mindmap,concept-card}.png`。
 
 ---
 
