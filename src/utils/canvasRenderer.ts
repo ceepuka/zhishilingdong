@@ -124,6 +124,30 @@ const LEVEL_TEXT: Color[] = [
 
 // ---------------------------------------------------------------- Block 模型
 
+/**
+ * 一张可用于导出的示意图（概念配图 / 试题配图）。
+ *
+ * **两个出口共用同一份**：PDF 把它 `drawImage` 到页面位图上，Word 把它
+ * `bytes` 内嵌进 `word/media/*`。必须是同一张图、同一份字节 —— 否则同一个
+ * 知识点在 PDF 和 Word 里长得不一样，又回到"两个出口口径不一致"那类 bug。
+ *
+ * 生产由 `exportFigures.collectKnowledgeFigures()` 装配（见该文件对三种图源
+ * 的处理与取舍）。
+ */
+export interface ExportFigure {
+  /** 已解码、可直接 `drawImage` 的对象（生产 = HTMLImageElement；测试可注入替身） */
+  image: unknown;
+  /** 位图字节（Word 内嵌用） */
+  bytes: Uint8Array;
+  /** 同一张图的 data URL（HTML 出口直接内联用，避免再编一遍 base64） */
+  dataUrl: string;
+  ext: 'png' | 'jpeg';
+  /** 宽高比 w/h —— 渲染时按可用宽度算高度，不回读像素尺寸 */
+  aspect: number;
+  /** 图题（概念名 / 题号），写在图下方 */
+  caption: string;
+}
+
 interface Seg {
   text: string;
   bold?: boolean;
@@ -139,6 +163,7 @@ type Block =
   | { kind: 'para'; segs: Seg[] }
   | { kind: 'bullet'; segs: Seg[]; indent?: number; ordered?: number; marker?: string }
   | { kind: 'box'; segs: Seg[]; indent?: number; accentBar?: boolean }
+  | { kind: 'image'; fig: ExportFigure; indent?: number }
   | { kind: 'rule' };
 
 /** 一页内容：横向 / 纵向 + Block 列表。 */
@@ -290,6 +315,14 @@ export interface CanvasCtx {
    * 生产实现提供；测试桩可省略 —— 导图独立图片（Word 内嵌）优先用它。
    */
   toPng?(): { bytes: Uint8Array; width: number; height: number };
+  /**
+   * 把一张**已解码**的图（`HTMLImageElement` 等可绘制对象）画到页面上。
+   *
+   * 可选：只有"数据里带图"的导出路径才会走到，没有图块的调用方（含测试桩）
+   * 不必实现。解码必须是调用方的事 —— canvas 的 `drawImage` 是同步的，
+   * 而图片加载天生异步，这个边界就在这里。
+   */
+  drawImage?(img: unknown, x: number, y: number, w: number, h: number): void;
 }
 
 function makeFontSpec(sizePx: number, bold?: boolean): string {
@@ -513,6 +546,41 @@ function renderBlocks(w: PageWriter, blocks: Block[]) {
         w.yPx += boxH + 8;
         break;
       }
+      case 'image': {
+        const indent = b.indent ?? 0;
+        const availW = w.contentWPt - indent;
+        // 宽度先占满可用区（示意图通常比正文宽才看得清），再按宽高比定高。
+        // **高度必须有上限**：没有上限时一张竖长图会"永远放不下"，
+        // `ensure` 每次都换页 → 一直翻到天荒地老。页高的 45% 远小于
+        // 可用高度（约 86%），保证任何图都能真正落在一页里。
+        let wPt = availW;
+        let hPt = wPt / Math.max(0.05, b.fig.aspect);
+        const maxH = w.pageHeightPt * 0.45;
+        if (hPt > maxH) {
+          hPt = maxH;
+          wPt = hPt * b.fig.aspect;
+        }
+        const wPx = px(wPt);
+        const hPx = px(hPt);
+        w.ensure(hPx + px(10) + px(10));
+        // 图按可用宽度居中（左右缩进一致，视觉上跟正文块同宽居中）
+        w.ctx.drawImage?.(b.fig.image, px(MARGIN + indent + (availW - wPt) / 2), w.yPx, wPx, hPx);
+        w.yPx += hPx + px(6);
+        // 图题（图注）：灰色小字居中，让"这张图说的是哪个概念"在脱离页面后仍然自明
+        if (b.fig.caption) {
+          const capSizePt = 9;
+          const capPx = px(capSizePt);
+          w.ensure(capPx * LINE_H);
+          const cap = layoutSegs(w.ctx, [{ text: b.fig.caption, color: C.muted, size: capSizePt }], capSizePt, w.contentWPt);
+          for (const ln of cap) {
+            const lineW = ln.segs.reduce((acc, sg) => acc + measureTextPx(w.ctx, sg.text, capPx), 0);
+            drawSegs(w, ln.segs, px(MARGIN) + (px(w.contentWPt) - lineW) / 2, w.yPx + capPx * TEXT_TOP_GAP, capSizePt);
+            w.yPx += capPx * LINE_H;
+          }
+        }
+        w.yPx += px(8);
+        break;
+      }
       case 'rule': {
         w.ensure(14);
         w.yPx += 6;
@@ -703,7 +771,10 @@ function hasKnowledgeContext(kc: NonNullable<GeneratedKnowledge['knowledgeContex
   );
 }
 
-function buildKnowledgeBlocks(data: KnowledgeCardData | GeneratedKnowledge): Block[] {
+function buildKnowledgeBlocks(
+  data: KnowledgeCardData | GeneratedKnowledge,
+  figures?: Map<string, ExportFigure>
+): Block[] {
   const s = getCurrentStrings();
   const t = s.exportNote;
   const c = s.search.concept;
@@ -729,8 +800,14 @@ function buildKnowledgeBlocks(data: KnowledgeCardData | GeneratedKnowledge): Blo
       type: string; title: string;
       content: { elementary: string; advanced: string };
       notation?: string; example?: string; keyPoints?: string[]; pitfalls?: string[];
-    }>).forEach((concept) => {
+    }>).forEach((concept, ci) => {
       blocks.push({ kind: 'h3', text: `${conceptTypeLabel(s, concept.type)}: ${concept.title}` });
+      // 示意图紧跟概念标题（与页面 ConceptIllustration 的位置一致）。
+      // 页面上是 image > imageData > 关键词检索 > svg 四级兜底，**检索那一级
+      // 导出时拿不到**（它是渲染期的异步 hook 结果，数据里没有）——
+      // 所以导出能带图的只有别的几级，见 exportFigures.ts。
+      const fig = figures?.get(`concept:${ci}`);
+      if (fig) blocks.push({ kind: 'image', fig });
       blocks.push({
         kind: 'para',
         segs: [
@@ -795,7 +872,7 @@ function buildKnowledgeBlocks(data: KnowledgeCardData | GeneratedKnowledge): Blo
 
   if ('examQuestions' in data && data.examQuestions?.length) {
     blocks.push({ kind: 'h2', text: s.search.sections.examQuestions });
-    data.examQuestions.forEach((q) => {
+    data.examQuestions.forEach((q, qi) => {
       blocks.push({
         kind: 'h3',
         text: `[${examTypeLabel(s, q.type)}][${difficultyLabel(s, q.difficulty)}] ${q.question}`,
@@ -803,7 +880,11 @@ function buildKnowledgeBlocks(data: KnowledgeCardData | GeneratedKnowledge): Blo
       q.options?.forEach((opt, i) =>
         blocks.push({ kind: 'bullet', segs: [{ text: opt }], marker: `${String.fromCharCode(65 + i)}.` })
       );
-      if (q.image || q.imageData || q.svg) {
+      // "如图"型试题缺图就是道废题。能拿到字节就嵌真图；拿不到（远程图被
+      // 跨域挡住等）才退成提示行 —— 至少让用户知道这题本来有图，别当成纯文字题去答。
+      const fig = figures?.get(`question:${qi}`);
+      if (fig) blocks.push({ kind: 'image', fig });
+      else if (q.image || q.imageData || q.svg) {
         blocks.push({ kind: 'para', segs: [{ text: s.common.exportActions.figureOmitted, color: C.muted, size: 9.5 }] });
       }
       blocks.push({
@@ -864,7 +945,10 @@ export interface CanvasPageOutput {
 export function renderKnowledgePages(
   data: KnowledgeCardData | GeneratedKnowledge,
   createCtx: (widthPt: number, heightPt: number, landscape?: boolean) => CanvasCtx,
-  initCtx?: (ctx: CanvasCtx) => void
+  initCtx?: (ctx: CanvasCtx) => void,
+  /** 已解码的示意图（概念配图 / 试题配图）。由调用方**先 await 采集**再传进来 ——
+   *  渲染链保持同步，异步边界只留在最外层。 */
+  figures?: Map<string, ExportFigure>
 ): CanvasPageOutput[] {
   const s = getCurrentStrings();
 
@@ -878,7 +962,7 @@ export function renderKnowledgePages(
   initCtx?.(first);
 
   const w = new PageWriter(first, createCtx);
-  renderBlocks(w, buildKnowledgeBlocks(data));
+  renderBlocks(w, buildKnowledgeBlocks(data, figures));
 
   const pages: CanvasPageOutput[] = w.pages.map((p, i) => ({
     widthPt: p.pageWidthPt,
@@ -1062,6 +1146,21 @@ export function renderMarkdownPages(
 
 // ---------------------------------------------------------------- Canvas 生产工厂
 
+/**
+ * data URL → 字节。用浏览器原生 `atob`。
+ *
+ * 模块级导出（而非 createRealCanvasCtx 的私有函数）：导出层还有别的出口要
+ * 拿到同一张图的原始字节（Word 内嵌 `word/media/*`），base64 解码只能有一份实现。
+ */
+export function dataUrlToBytes(dataUrl: string): Uint8Array {
+  const comma = dataUrl.indexOf(',');
+  const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
 /** 生产 Canvas 上下文 + 真实 fillText / fillRect / measureText / drawLine / drawBezier。 */
 export function createRealCanvasCtx(widthPt: number, heightPt: number, landscape = false): CanvasCtx {
   // 浏览器环境
@@ -1076,16 +1175,6 @@ export function createRealCanvasCtx(widthPt: number, heightPt: number, landscape
   const ctx2d = canvasEl.getContext('2d');
   if (!ctx2d) throw new Error('2d context unavailable');
   ctx2d.textBaseline = 'top';
-
-  // JPEG → Uint8Array 解码：用浏览器原生 atob
-  function dataUrlToBytes(dataUrl: string): Uint8Array {
-    const comma = dataUrl.indexOf(',');
-    const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
-    const bin = atob(b64);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return out;
-  }
 
   return {
     pageWidthPt: widthPt,
@@ -1147,6 +1236,11 @@ export function createRealCanvasCtx(widthPt: number, heightPt: number, landscape
         width: canvasEl.width,
         height: canvasEl.height,
       };
+    },
+    drawImage(img, x, y, w, h) {
+      // 画质：示意图多为矢量线条，放大时用双线性就够（不引 imageSmoothingQuality
+      // 的高开销档位，导出是批量绘制，逐图升级画质收益远低于耗时）
+      ctx2d.drawImage(img as CanvasImageSource, x, y, w, h);
     },
   };
 }

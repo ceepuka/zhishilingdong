@@ -1,7 +1,7 @@
 # 知识灵动助手 - 技术架构文档
 
-**版本:** v2.2  
-**日期:** 2026-09-10  
+**版本:** v2.3  
+**日期:** 2026-10-07  
 **状态:** 正式版本  
 **作者:** AI助手  
 
@@ -24,6 +24,7 @@
 13. [密钥管理（v2 多厂商面板）](#13-密钥管理v2-多厂商面板)
 14. [多语言（i18n）与用户语言（v1.6.0）](#14-多语言i18n与用户语言v160)
 15. [流式渲染与超限自动续写（v1.5.0 / v1.6.0）](#15-流式渲染与超限自动续写v150--v160)
+16. [导出层（v1.7.3）](#16-导出层v173)
 
 ---
 
@@ -475,7 +476,15 @@ src/
 │   ├── ai.ts            # AI服务接口契约
 │   └── aiProviders.ts   # 厂商元数据 + v2配置类型
 ├── utils/               # 工具函数
-│   ├── export.ts        # 导出工具（多语言表头）
+│   ├── export.ts        # 导出总入口（分发 txt/md/html/docx/pdf；图片采集在此 await 一次）
+│   ├── serialize.ts     # 唯一序列化实现（页面「复制」与全部文件导出共用）
+│   ├── clipboard.ts     # 剪贴板与下载唯一出口（三级降级 + 文件名清洗）
+│   ├── exportDocx.ts    # Word(.docx)：JSZip + 手写 OOXML + 媒体 rId 分配器
+│   ├── exportPdf.ts     # PDF 组页（位图页 + 隐形文字层）
+│   ├── canvasRenderer.ts# 每页 Canvas 绘制（正文块 + paintMindMap 导图）
+│   ├── pdfCore.ts       # 手写 PDF 对象（DCTDecode 位图 + 3 Tr 文字层）
+│   ├── exportFigures.ts # 正文示意图采集（image / imageData / svg）
+│   ├── latexToText.ts   # 公式降级为可读文本（docx 与 PDF 共用）
 │   ├── inlineSvg.ts     # 内联 SVG 严格清洗
 │   ├── jsonRepair.ts    # JSON脏数据4层修复
 │   └── latex.ts         # LaTeX 归一化 + 安全渲染
@@ -671,7 +680,7 @@ const handleClearAllHistory = () => {
 
 | 限制 | 现象 | 处理 |
 |------|------|------|
-| 动态 `import()` 走网络式加载 | 懒加载 chunk（jspdf/html2canvas/purify）被 CORS 拦，**导出功能静默失效**（不报错） | `output.inlineDynamicImports: true`，全部合并进单一 chunk |
+| 动态 `import()` 走网络式加载 | 懒加载 chunk（`jszip` 等按需引入的库）被 CORS 拦，**导出功能静默失效**（不报错） | `output.inlineDynamicImports: true`，全部合并进单一 chunk |
 | 外部字体/资源被视为跨源请求 | KaTeX 的字体文件全部加载失败，公式排版崩 | `assetsInlineLimit: Infinity`，内联为 base64 data URI |
 
 另外两处收尾工作写在 `scripts/build-standalone.js` 里：
@@ -940,6 +949,54 @@ SSE chunk ──► sseReader ──► StreamingJSONParser.push(chunk)
 | `callModelStreamWithContinuation(...)` | 首轮 1 次 + 续写 ≤2 次（`MAX_GENERATION_ATTEMPTS=3`）；未写完时回填已生成内容（尾部最多 12k）要求"只输出续写"；续写轮空内容即 break、续写轮异常保留已累积内容（不空转、不丢尾巴） |
 | 接入点 | `search.generateStream`（字段齐全判定）/ `followupStream` / `document.generateStream`（括号闭合判定） |
 | 用户反馈 | `SearchGenerateResponse.continued` → SearchResults 在琥珀色截断警告后追加青绿色"已自动续写并补全"提示 |
+
+---
+
+## 16. 导出层（v1.7.3）
+
+同一份知识内容有 **复制 / 下载** 两类出口、**txt / md / html / Word / PDF** 五种格式 —— 出口一多，
+"每个出口各写一遍"必然漂移（本项目已因双写吃过两次亏：导出不含概览、导出丢三段内容）。v1.7.3
+把这一层整体重做，三条不变式如下。
+
+### 16.1 复制与导出同源
+
+| 组件 | 文件 | 职责 |
+|------|------|------|
+| 唯一序列化 | `utils/serialize.ts` + `generateKnowledgeNote()` | 产出 txt / md / html 三份文本；**页面「复制」直接取它的 `.md`**，不再有第二份手写拼接器 |
+| 枚举文案 | `utils/knowledgeLabels.ts` | 概念类型 / 题型标签，卡片徽章与 markdown 导出共用 |
+| 剪贴板与下载 | `utils/clipboard.ts` | `copyText()` 三级降级（Async Clipboard → `execCommand` → `failed`）且**永不抛异常**；`safeFilename()` 处理非法字符与 Windows 保留名 |
+
+**为什么必须三级降级**：发布形态是本地单文件 HTML（`file://`，非安全上下文），
+那里 `navigator.clipboard` 可能是 `undefined`，裸调会抛 `TypeError` 且没有任何提示 ——
+从用户视角就是"按钮坏了"。
+
+### 16.2 PDF：位图页 + 隐形文字层
+
+| 路线 | 结论 |
+|------|------|
+| 浏览器打印 | ❌ 打印对话框把页面栅格化 → 位图 PDF，文字不可复制/检索 |
+| 不嵌字体的矢量 CJK | ❌ 结构合规但 Windows 无该字形 → 屏幕上整页空白（实测 inkRatio ≈ 0.001） |
+| **位图页 + `3 Tr` 隐形文字层** | ✅ 字形由位图负责、复制检索由文字层负责 |
+
+管道：`canvasRenderer.ts`（浏览器渲染层把每页画成 canvas，2× 超采样 ≈144 DPI）
+→ `exportPdf.ts`（组页）→ `pdfCore.ts`（手写 PDF 对象：JPEG 作 `/DCTDecode` XObject 铺满整页
++ `3 Tr` 隐形文字层）。**零第三方依赖**，不嵌字体。
+
+导图另有横向页：`paintMindMap()` 是**唯一绘制源**，PDF 横向页与 Word 附录页共用同一份布局与绘制
+（屏幕上的导图是 SVG + 绝对定位 DOM，所以"截图"是**离屏 canvas 按同一布局重绘**，不是截页面像素）。
+
+### 16.3 多出口口径对齐
+
+PDF 出口读**结构化数据**、Word 出口读 **Markdown**，能力天然不等价，差异必须显式维护：
+
+| 差异点 | 处理 |
+|---|---|
+| 首标题 | Word 曾把 `# 标题` 降级成普通段落（出现"大标题 + 同文小字"）→ 改为同文丢弃 / 异文保留 Heading1，`Title` 样式对齐 PDF |
+| 导图大纲 | Word 附录页之外，正文里还残留一段「思维导图结构」文字大纲（`parseMarkdown` 不解析嵌套缩进 → 压成同一层）→ 有附录页时剥掉 |
+| 正文示意图 | 导出层原先对 `image` / `imageData` / `svg` **零引用** → 新增 `utils/exportFigures.ts` 采集层，PDF / Word / HTML 三出口共用一份（一次采集，避免各采各的导致漂移） |
+
+**异步边界**：canvas 的 `drawImage` 是同步的、图片解码天生异步 → 采集在最外层 `await` 一次，
+排版/渲染链保持同步。配图单张失败一律降级（**导出不因配图失败整份失败**），拿不到的远程图退成一行图题。
 
 ---
 

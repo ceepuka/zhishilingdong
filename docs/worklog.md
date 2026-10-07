@@ -6,6 +6,54 @@
 
 ---
 
+## 2026-10-06 ~ 10-07（复制与导出重构 + 公式/PDF 修复 + 导图改截图 + Word/PDF 口径对齐与示意图导出 → v1.7.3）
+
+**任务类型**：需求分析 / 开发任务 / 重构优化 / Bug修复 / 文档维护
+
+> 本轮工作原本被拆成 `v1.8.0`（复制/导出重构）与 `v1.9.0`（公式/PDF）两个号，但**两批改动从未分别发布**
+> → 按「未发布的改动不占号 + MINOR 留给路线图」统一收进补丁版 **v1.7.3**，`1.8.0` 号段归还给「移动端适配」。
+> 两个误发的号已撤回（含 remote tag + GitHub Release）。
+
+**第1步 复制与导出重构（修"导出文件丢一半内容"）**
+- 查出导出链上叠着六个问题，最严重的是**导出后知识脉络 / 试题 / 趣味知识三段整段消失**，而"复制"出口一直有。
+- 真因不是"漏写三个 `if`"，是**同一份 Markdown 被两份代码各写一遍**（`SearchResults.handleCopy` 的手写拼接器 + `generateKnowledgeNote`）→ 删除手写实现，复制直接复用 `generateKnowledgeNote(data).md`。
+- 新增 `utils/clipboard.ts`（`copyText` 三级降级、**永不抛异常** —— `file://` 下 `navigator.clipboard` 可能是 `undefined`）、`utils/serialize.ts`、`utils/knowledgeLabels.ts`；新增 Word(.docx) 导出（JSZip + 手写 OOXML，不引 `docx` 包）。
+- **移除 jspdf**：内置 14 种标准字体全是 latin-1，中文写进去是乱码，仓库内也无可嵌入的中文字体。
+
+**第2步 公式与 PDF 修复（用户实测："公式没渲染，pdf 看不见"）**
+- 公式漏网三条通道：```` ```latex ```` 围栏块被 `parseMarkdown` join 成一行、**无围符裸 LaTeX**（提示词本来就要求 `notation` 纯 LaTeX）、嵌套 `\frac` 单次 replace 不回溯。收敛成唯一实现 `utils/latexToText.ts`。
+- **推翻上一版"改走浏览器打印"的结论**：打印对话框会把页面栅格化 → 位图 PDF（实测参考件 6 页 / 文本长度 0）→ 只要经过打印文字就永不可复制。
+- 试过不嵌字体的矢量 CJK（`/STSong-Light` + `/UniGB-UCS2-H`）：结构完全合规、pdf.js 也能提取文字，但 **Windows 上（Chrome / Edge / PDFium / pdf.js）都没有这套字形**，实测每页 inkRatio ≈ 0.001 = 白纸。
+- 最终方案：**每页 Canvas 位图 + `3 Tr` 隐形文字层**（`canvasRenderer` → `exportPdf` → `pdfCore`，零第三方依赖）。
+- 顺带挖出 6 个隐藏缺陷：跨页共用同一张位图、导图页画在纵向画布上、行盒外溢切字、**排版按 pt 绘制按 px 导致显式 `size` 的片段全缩到 0.375×**、孤行标题、位图流多一个换行吃掉 JPEG 末字节。
+
+**第3步 导图导出改"从画布截图"（用户方案）**
+- 用户原话："我的方案是从生成的画布截图，更简单"。采纳，**PDF 导图页与 Word 附录页两个出口都改**。
+- 关键认知：屏幕上的导图是 **SVG + 绝对定位 DOM，不是 canvas** → "截图"是**离屏 canvas 按同一份布局重绘**，不是截页面像素（也就不需要 html2canvas）。
+- 绘制收敛成 `paintMindMap()` 一份（PDF 横向页 + Word 附录页共用）；Word 附录页由"缩进层级文字"改为内嵌位图。
+
+**第4步 Word 与 PDF 口径对齐 + 正文示意图导出（用户第二轮实测）**
+- 用户拿两份产物逐项对照报三条："首标题格式不一致"、"被添加了不需要的冗余内容"、"所有文档会丢失示意图内容"。
+- 前两条是"同一份内容两个出口不一致"的复发（PDF 走结构化数据、Word 走 Markdown）：修 ① 首标题不再被降级成正文小字（同文丢弃 / 异文保留 Heading1，`Title` 样式对齐 PDF）；② `stripMindMapSection` 在有附录页时剥掉正文里重复的「思维导图结构」大纲。
+- 第三条是导出链**整块能力缺失**（`image` / `imageData` / `svg` 三字段零引用）：新增 `utils/exportFigures.ts` 采集层，PDF / Word / HTML 三出口共用一份；Word 走 `![alt](figure:key)` 标记 + **统一 rId / media 分配器**（旧实现把 `rId3` 硬编码给导图，正文再插图必然撞号）。
+- 顺带修掉 `svgWithIntrinsicSize` 的真缺陷：原先在整段 SVG 源码里搜 `width`/`height`，子元素（`<rect width="300">`）会把"已有尺寸"分支误判命中 → 跳过 viewBox 注入 → 320×200 的图被读成 240×150。
+
+**第5步 验证**
+- `tsc --noEmit` 干净；vitest **529 例 / 40 文件全绿**；新增锁逐条反向验证过会红（首标题不丢 → "复数"出现 2 次；不剥大纲 → 节点标题漏进正文；图不接进渲染 → `drawImage` 调用数 0；SVG 尺寸改回全局搜索 → 返回 300 而非 320）。
+- 端到端（`F:\WorkBuddyData\.workbuddy\tmp\exportprobe\`：真 Chromium 打 `file://` 单文件产物 → mock AI → 走 UI 导出菜单，包一层 `URL.createObjectURL` 抓 Blob 字节）：Word 侧 `figure1..4.png`、4 个 `r:embed` 与 media 一一对应无悬空；PDF 侧 4 页（3 纵向 + 1 横向）、`3 Tr` 70 处、文字可提取。
+- 记一笔假绿：`verify.cjs` 曾用 pdf.js 的 `OPS.setRenderingMode` 数隐形文字得 **0**，而原始字节里 `3 Tr` 明明有 70 处 → 改为直接 grep 原始字节。
+
+**第6步 版本号纪律（用户反馈："版本号制定太随意了"）**
+- 新增 `docs/convention.md` §7「版本号规范（强制）」：SemVer 语义表 / 未发布不占号 / 六处版本号一致 / 路线图预锁号（`v1.8.0 = 移动端适配`）。
+- 新增 `scripts/check-version.js` 作为 `npm run release` 的前置门禁（六处不一致直接 fail）。
+- 撤回误发的 `v1.9.0`（tag + Release 均 204 删除，复核 404）。
+- **2026-10-07 用户拍板**：第 4 步的"正文示意图导出"单看形态是能力新增（MINOR），因属"导出内容对不齐"这条缺陷链的收尾，**一并收进 v1.7.3**；记为唯一一次越界、不作先例。
+
+**第7步 文档同步**
+- `docs/versions.md`（v1.7.3 八节 + 版本号说明）、`docs/history.md`（真因五 + 第四轮修复要点 + 验证数字）、`docs/issues.md`（新增四条已解决 + 两条经验教训）、`docs/todo.md`、`README.md`、`docs/convention.md`（§7.5 + §8）、`docs/design.md`（新增 §10.9 导出层 + 修正 jspdf 残留）、`docs/architecture.md`（新增 §16 导出层 + 文件树 + 修正 jspdf 残留）、`docs/worklog.md`（本条）、`docs/progress.md`。
+
+---
+
 ## 2026-09-30（补充 Mock 演示数据 + 全量守卫 + 发布 v1.7.2）
 
 **任务类型**：开发任务 / 发布任务

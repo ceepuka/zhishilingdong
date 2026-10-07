@@ -150,11 +150,13 @@
 | 日期 | 变更内容 | 作者 |
 |------|---------|------|
 | 2026-10-06 | 建立版本号规范；撤回误发的 `v1.9.0`（含 remote tag + Release），本日两批改动合并为 `v1.7.3`；锁定 `v1.8.0 = 移动端适配`；新增 `scripts/check-version.js` 接入 `npm run release` | AI助手 |
+| 2026-10-07 | 确认一处**已知越界**：`v1.7.3` 的「正文示意图导出」单看形态是能力新增（MINOR），因属"导出内容对不齐"这条缺陷链的收尾，用户拍板一并收进 `v1.7.3`，**不为它单独开 MINOR、不动 `1.8.0` 锁号**；已记为唯一一次越界、**不作先例**（见 `docs/versions.md` v1.7.3 版本号说明） | AI助手 |
 
 ## 8. 变更记录
 
 | 日期 | 变更内容 | 作者 |
 |------|---------|------|
+| 2026-10-07 | v1.7.3 全量文档同步（第四轮：Word/PDF 口径对齐 + 正文示意图导出）：① 新增 §7 版本号规范的越界确认记录；② `versions.md` 补第八节（首标题降级修正、`stripMindMapSection`、`utils/exportFigures.ts` 采集层与 `drawImage` 图片块、统一 rId 分配器、`svgWithIntrinsicSize` 子元素尺寸缺陷）；③ `history.md` 补"真因五（跨出口口径）"与第四轮修复要点、验证数字更新为 529 项 / 40 文件；④ `issues.md` 新增四条已解决；⑤ `todo.md`/`README.md` 版本行与归号说明同步；⑥ §7.5 补 2026-10-07 一行 | AI助手 |
 | 2026-09-15 | v1.7.0 正式发布里程碑：① 生成中断分类模型（`services/streaming/interruption.ts`，四类归因 + 标准 code + 续写策略）；② 续写从"仅模型超限"扩展到全链路中断（无内容时原 prompt 重发 1 次、硬上限 3）；③ `withFallback` strict 模式（生成类调用不再吞成"成功但空"）+ 传输层错误归类；④ `GenerationNotice` 按原因分档提示（搜索/文档共用）；⑤ 版权声明 + MIT LICENSE + 仓库清理。`design.md`(v1.5，新增 10.7/改写 10.2·10.3)/`history.md`/`worklog.md`/`progress.md`/`versions.md`/`todo.md`/`issues.md`/`README.md` 同步（277/277 全绿） | AI助手 |
 | 2026-09-15 | m031 内容渲染一致性：① 抽出共享 `components/knowledge/KnowledgeContentView.tsx`（`MindMap`/`ExamQuestionCard`/`ConceptIllustration`/`normalizeGenerated`/`isGeneratedKnowledge`），搜索与收藏共用**唯一实现**，修掉"收藏不支持公式、不能展示思维导图"（根因是双实现漂移）；② 新增 `components/ui/MarkdownContent.tsx`（Markdown 结构 + `LatexText` 文本，`code`/`pre` 不解析公式），文档正文与收藏文档视图共用；③ 边界修复 6 处（格式判据误判致空白、思维导图脏数据白屏、`$$` 公式残留美元符号、列表预览裸露源码、收藏保存静默失败、去重口径不一致）；④ `useFavorites` 超配额降级保存 + 可见提示。`design.md`(v1.6，新增 10.8 + 更新目录结构/3.5 收藏模块)/`worklog.md`/`progress.md`/`todo.md`/`issues.md`/`README.md` 同步（305/305 全绿） | AI助手 |
 | 2026-07-04 | 初始版本，建立文档约定 | AI助手 |

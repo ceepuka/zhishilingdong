@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import JSZip from 'jszip';
 import { buildDocx, type AppendixImage, type LandscapeAppendix } from '../exportDocx';
+import { getCurrentStrings } from '../../i18n/strings';
+import type { ExportFigure } from '../canvasRenderer';
+import type { FigureMap } from '../exportFigures';
 
 /**
  * docx 产物结构回归。
@@ -15,8 +18,13 @@ import { buildDocx, type AppendixImage, type LandscapeAppendix } from '../export
  * 3. 中文字体靠 `w:eastAsia`，只设 `w:ascii`（西文）时中文会落到 Word 默认字体，
  *    在部分系统上是方框。
  */
-async function readZip(md: string, title = '测试标题', appendix?: LandscapeAppendix) {
-  const blob = await buildDocx(md, title, appendix);
+async function readZip(
+  md: string,
+  title = '测试标题',
+  appendix?: LandscapeAppendix,
+  figures?: FigureMap
+) {
+  const blob = await buildDocx(md, title, appendix, figures);
   const zip = await JSZip.loadAsync(blob);
   const files = Object.keys(zip.files);
   const doc = await zip.file('word/document.xml')!.async('string');
@@ -87,6 +95,41 @@ describe('docx — 内容映射', () => {
     const { styles } = await readZip('# 标题');
 
     expect(styles).toContain('w:eastAsia');
+  });
+
+  /**
+   * 首标题只允许出现一次。
+   *
+   * 旧实现把 md 首行 `# xxx` **降级成普通段落**（本意是躲开顶部标题的重复），
+   * 结果是 Word 里出现"居中大标题 + 紧接一行同文字的小号正文"的双标题，
+   * 用户实测反馈"Word 首标题格式和 PDF 不一致"。
+   * 要么它是标题（用 Title 渲染），要么它不该出现（丢弃），没有第三种身份。
+   */
+  it('首标题与文档标题同文时只出现一次', async () => {
+    const { doc } = await readZip('# 复数\n\n正文内容', '复数');
+
+    expect((doc.match(/<w:pStyle w:val="Title"\/>/g) ?? [])).toHaveLength(1);
+    expect((doc.match(/>复数</g) ?? [])).toHaveLength(1);
+  });
+
+  it('首标题与文档标题不同文时保留为 Heading1（那是内容自己的标题）', async () => {
+    const { doc } = await readZip('# 内容标题\n\n正文', '文档标题');
+
+    expect(doc).toContain('Heading1');
+    expect((doc.match(/>内容标题</g) ?? [])).toHaveLength(1);
+    expect((doc.match(/>文档标题</g) ?? [])).toHaveLength(1);
+  });
+
+  it('Title 样式与 PDF 首标题同格式（左对齐 / 20pt / #0F172A / 青色下划线）', async () => {
+    const { styles } = await readZip('# t');
+    const style = /<w:style w:type="paragraph" w:styleId="Title">([\s\S]*?)<\/w:style>/.exec(styles);
+    expect(style).toBeTruthy();
+    const body = style![1];
+
+    expect(body).not.toContain('w:jc w:val="center"');
+    expect(body).toContain('w:sz w:val="40"');
+    expect(body).toContain('w:color w:val="0F172A"');
+    expect(body).toContain('w:color="0D9488"');
   });
 });
 
@@ -176,10 +219,10 @@ describe('docx — 导图附录页（截图嵌图）', () => {
     const ct = await zip.file('[Content_Types].xml')!.async('string');
     const rels = await zip.file('word/_rels/document.xml.rels')!.async('string');
 
-    expect(files).toContain('word/media/mindmap.png');
+    expect(files).toContain('word/media/figure1.png');
     expect(ct).toContain('<Default Extension="png" ContentType="image/png"/>');
     expect(rels).toContain('relationships/image');
-    expect(rels).toContain('Target="media/mindmap.png"');
+    expect(rels).toContain('Target="media/figure1.png"');
     expect(doc).toContain('w:drawing');
     expect(doc).toContain('<wp:inline');
     expect(doc).toContain('r:embed="rId3"');
@@ -191,7 +234,7 @@ describe('docx — 导图附录页（截图嵌图）', () => {
   it('位图按二进制原样写入（被当文本编码一遍 = 图片损坏）', async () => {
     const img = fakeImage();
     const { zip } = await readZip('# t', '标题', withImage(img));
-    const stored = await zip.file('word/media/mindmap.png')!.async('uint8array');
+    const stored = await zip.file('word/media/figure1.png')!.async('uint8array');
 
     expect(Array.from(stored)).toEqual(Array.from(img.bytes));
   });
@@ -223,14 +266,14 @@ describe('docx — 导图附录页（截图嵌图）', () => {
     expect(doc).toContain('子节点');
     expect(doc).toContain('w:ind');
     expect(doc).not.toContain('w:drawing');
-    expect(files).not.toContain('word/media/mindmap.png');
+    expect(files).not.toContain('word/media/figure1.png');
   });
 
   it('空字节 = 没截到图：不写 media、也不留悬空的关系声明', async () => {
     const { files, doc, zip } = await readZip('# t', '标题', withImage(fakeImage({ bytes: new Uint8Array(0) })));
     const rels = await zip.file('word/_rels/document.xml.rels')!.async('string');
 
-    expect(files).not.toContain('word/media/mindmap.png');
+    expect(files).not.toContain('word/media/figure1.png');
     expect(rels).not.toContain('relationships/image');
     expect(doc).not.toContain('w:drawing');
     expect(doc).toContain('子节点');
@@ -241,9 +284,9 @@ describe('docx — 导图附录页（截图嵌图）', () => {
     const ct = await zip.file('[Content_Types].xml')!.async('string');
     const rels = await zip.file('word/_rels/document.xml.rels')!.async('string');
 
-    expect(files).toContain('word/media/mindmap.jpeg');
+    expect(files).toContain('word/media/figure1.jpeg');
     expect(ct).toContain('<Default Extension="jpeg" ContentType="image/jpeg"/>');
-    expect(rels).toContain('Target="media/mindmap.jpeg"');
+    expect(rels).toContain('Target="media/figure1.jpeg"');
   });
 
   it('不传附录时文档只有一节（多一个空 sectPr 会多出一整页空白）', async () => {
@@ -251,5 +294,112 @@ describe('docx — 导图附录页（截图嵌图）', () => {
 
     expect(doc.match(/<w:sectPr>/g)).toHaveLength(1);
     expect(doc).not.toContain('w:drawing');
+  });
+});
+
+/**
+ * 正文里的「思维导图结构」文字大纲 —— 有导图页时必须剥掉。
+ *
+ * `generateKnowledgeNote` 为了让 txt / md / html 出口也有导图，会把导图序列化成
+ * `## 思维导图结构` + `- 节点` 大纲，而 Word 出口**另外**还有一张横向导图页 →
+ * 用户看到同一份导图出现两遍，且文字版在 docx 里必然丢失层级（`parseMarkdown`
+ * 不解析嵌套缩进），成了一串平铺项。PDF 走结构化数据、本来就没这段，
+ * 这正是"Word 和 PDF 内容不一致"的来源之一。
+ */
+describe('docx — 剥离正文里的导图文字大纲', () => {
+  const withImage = (): LandscapeAppendix => ({
+    title: '标题 · 思维导图',
+    lines: ['- 根节点'],
+    image: fakeImage(),
+  });
+
+  /** 语言无关：导图区块标题取自 i18n，不写死中/英 */
+  const outlineSection = () => {
+    const label = getCurrentStrings().exportNote.mindMap;
+    return `## ${label}\n\n- 复数\n- 虚数单位\n`;
+  };
+
+  it('有导图页时剥掉大纲，但后面的区块一个字都不能少', async () => {
+    const md = `# t\n\n## 核心概念\n\n内容\n\n${outlineSection()}\n## 试题\n\n题目正文`;
+    const { doc } = await readZip(md, 't', withImage());
+
+    expect(doc).not.toContain('虚数单位');
+    expect(doc).toContain('核心概念');
+    expect(doc).toContain('题目正文');
+  });
+
+  it('大纲落在文末时不会连页脚一起吃掉', async () => {
+    const md = `# t\n\n## 核心概念\n\n内容\n\n${outlineSection()}\n---\n导出时间: 2026`;
+    const { doc } = await readZip(md, 't', withImage());
+
+    expect(doc).not.toContain('虚数单位');
+    expect(doc).toContain('导出时间');
+  });
+
+  it('没有导图页时保留大纲（那是唯一的导图载体）', async () => {
+    const md = `# t\n\n${outlineSection()}`;
+    const { doc } = await readZip(md, 't');
+
+    expect(doc).toContain('虚数单位');
+  });
+});
+
+/**
+ * 正文示意图 —— 用户反馈的"所有文档会丢失示意图内容"。
+ *
+ * 序列化层只在**图确实拿得到**时才写一行 `![alt](figure:key)` 标记
+ * （md 会被"复制"出口复用，塞 base64 会毁掉剪贴板），真位图在这里替换进去。
+ */
+describe('docx — 正文示意图', () => {
+  const figure = (over: Partial<ExportFigure> = {}): ExportFigure => ({
+    image: { stub: true },
+    bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]),
+    dataUrl: 'data:image/png;base64,xx',
+    ext: 'png',
+    aspect: 2,
+    caption: '复平面',
+    ...over,
+  });
+
+  it('标记换成内嵌位图：media、rels、drawing 三件齐备', async () => {
+    const figures: FigureMap = new Map([['concept:0', figure()]]);
+    const { files, doc, zip } = await readZip('# t\n\n![复平面](figure:concept:0)', 't', undefined, figures);
+    const rels = await zip.file('word/_rels/document.xml.rels')!.async('string');
+
+    expect(files).toContain('word/media/figure1.png');
+    expect(rels).toContain('Target="media/figure1.png"');
+    expect(rels).toContain('relationships/image');
+    expect(doc).toContain('w:drawing');
+    expect(doc).toContain('r:embed="rId3"');
+    // 标记本身不能被当正文漏出来
+    expect(doc).not.toContain('figure:concept:0');
+  });
+
+  it('拿不到字节时退成一行图题，不静默消失', async () => {
+    const { files, doc } = await readZip('# t\n\n![复平面](figure:concept:0)', 't');
+    const media = files.filter((f) => f.startsWith('word/media/') && !f.endsWith('/'));
+
+    expect(media).toHaveLength(0);
+    expect(doc).not.toContain('w:drawing');
+    expect(doc).toContain('（复平面）');
+  });
+
+  it('导图页与正文图共用 rId 空间，两个 embed 绝不撞号', async () => {
+    const figures: FigureMap = new Map([['concept:0', figure()]]);
+    const appendix: LandscapeAppendix = { title: '导图', lines: [], image: fakeImage() };
+    const { doc } = await readZip('# t\n\n![复平面](figure:concept:0)', 't', appendix, figures);
+
+    const ids = [...doc.matchAll(/r:embed="(rId\d+)"/g)].map((m) => m[1]);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+  });
+
+  it('图题的宽高比决定显示尺寸（拉伸变形是最容易犯的错）', async () => {
+    const figures: FigureMap = new Map([['concept:0', figure({ aspect: 4 })]]);
+    const { doc } = await readZip('# t\n\n![x](figure:concept:0)', 't', undefined, figures);
+    const m = /<wp:extent cx="(\d+)" cy="(\d+)"\/>/.exec(doc)!;
+
+    expect(m).toBeTruthy();
+    expect(Number(m[1]) / Number(m[2])).toBeCloseTo(4, 1);
   });
 });

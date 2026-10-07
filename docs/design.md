@@ -1,7 +1,7 @@
 # 知识灵动助手 - 技术架构文档
 
-**版本:** v1.6
-**日期:** 2026-09-15
+**版本:** v1.7
+**日期:** 2026-10-07
 **状态:** 进行中
 
 > **变更说明（v1.1）**：与代码实现对齐——5种卡片修正为6种（补 FormulaCard）、"知识结构图谱"修正为"知识目录"（div 层级树，非 SVG 知识图谱）、文档类型修正为11种、数据模型与 `src/types/index.ts` 完全对齐。
@@ -16,6 +16,8 @@
 > **变更说明（v1.6）**：v1.7.0 之后（m031）—— 新增第 10.8 节「内容渲染一致性：同一份数据只有一套渲染实现」：抽出共享 `KnowledgeContentView`（搜索与收藏共用）、`MarkdownContent` 让 Markdown 与公式共存、渲染前防御（`sanitizeMindMap` / `normalizeGenerated` / `isGeneratedKnowledge` / `$$` 切分顺序 / `toPlainPreview`）、收藏存储超配额降级契约。
 >
 > **变更说明（v1.6 补充）**：v1.7.0 之后（m032）—— 第 10.8 节补「归属判定规则」：**标题头（标题 + 概览 `summary`）与中断提示整体收进共享实现**，页面级操作用 `headerActions` 插槽注入；概览曾因留在外壳里导致收藏详情整段丢失，又曾因单独挪出标题卡导致搜索页观感回退 —— 最终以"字段连同视觉容器一起搬"收口。同时补齐导出（txt/md/html）的概览，与「复制」口径对齐。
+>
+> **变更说明（v1.7）**：v1.7.3 —— 新增第 10.9 节「导出层：复制与导出同源 + 位图页 PDF + 多出口口径对齐」。核心技术决定：**复制与导出共用同一份序列化结果**（消灭双写）、**PDF 自研生成**（每页 Canvas 位图作 `DCTDecode` XObject + `3 Tr` 隐形文字层；不嵌字体、不走浏览器打印）、**思维导图导出改"从画布截图"**（`paintMindMap` 一份绘制源，PDF 横向页与 Word 附录页共用）、**Word 与 PDF 口径对齐**（首标题不再降级成正文、剥掉正文里重复的导图文字大纲）、**正文示意图可导出**（新增 `utils/exportFigures.ts` 采集层）。同时修正第 8 节技术栈里的 PDF 方案（`jspdf` → 自研，第 10.9 节）。
 
 ---
 
@@ -65,7 +67,7 @@
 ├─────────────────────────────────────────────────────────────────────┤
 │    AI 服务（OpenAI 兼容协议：智谱/通义/硅基流动/自定义厂商，Mock 回退）│
 ├─────────────────────────────────────────────────────────────────────┤
-│              第三方库 (KaTeX / react-markdown / jspdf)               │
+│              第三方库 (KaTeX / react-markdown / JSZip)               │
 ├─────────────────────────────────────────────────────────────────────┤
 │                  构建工具 (Vite + TypeScript)                        │
 └─────────────────────────────────────────────────────────────────────┘
@@ -186,7 +188,16 @@ src/
 │   ├── ai.ts
 │   └── aiProviders.ts     # 厂商元数据 + v2 配置类型 + 解析函数
 ├── utils/                # 工具函数
-│   ├── export.ts              # 导出（多语言表头）
+│   ├── export.ts              # 导出总入口（复制/下载/TXT/MD/HTML/Word/PDF 分发；图片采集在此 await 一次）
+│   ├── serialize.ts           # 唯一的序列化实现（页面「复制」与所有文件导出共用）
+│   ├── knowledgeLabels.ts     # 枚举文案（概念类型 / 题型），复制与导出共用
+│   ├── clipboard.ts           # 剪贴板与下载唯一出口（三级降级 + 文件名清洗，永不抛异常）
+│   ├── exportDocx.ts          # Word(.docx)：JSZip + 手写 OOXML（含图片/导图媒体的 rId 分配器）
+│   ├── exportPdf.ts           # PDF 组页（位图页 + 隐形文字层）
+│   ├── canvasRenderer.ts      # 每页 Canvas 绘制（正文块 + `paintMindMap` 导图，页面与导出共用布局）
+│   ├── pdfCore.ts             # 手写 PDF 对象（DCTDecode 位图 XObject / 3 Tr 文字层，零第三方依赖）
+│   ├── exportFigures.ts       # 正文示意图采集（image / imageData / svg → 可绘制对象 + 字节 + data URL）
+│   ├── latexToText.ts         # 公式降级为可读文本（docx 与 PDF 共用）
 │   ├── inlineSvg.ts           # 内联 SVG 严格清洗
 │   ├── jsonRepair.ts          # JSON 脏数据 4 层修复
 │   ├── latex.ts               # LaTeX 归一化 + 安全渲染
@@ -296,7 +307,7 @@ src/
 - 文档类型选择器（折叠/展开效果，移到输入框下方）
 - 商务邮件支持3种语气风格（正式/友好/简洁）
 - 文档生成结果 Markdown 渲染（react-markdown + remark-gfm）
-- 复制功能、多格式导出（TXT/Markdown/PDF，PDF 支持中文和分页）
+- 复制功能、多格式导出（TXT / Markdown / HTML / Word / PDF；PDF 不嵌字体、走自研位图页 + 隐形文字层，文字可复制检索 —— 详见 10.9）
 - 文档收藏功能
 - 浏览中状态：使用 `currentTopic`（原始输入 topic）作为标识，而非 `result.title`
 
@@ -883,7 +894,8 @@ v2 架构下旧的 `hooks/useApiKey.ts`、`services/glmAIService.ts` 及 3 个�
 | Tailwind CSS | 快速原型开发，组件级样式 | 自定义CSS / CSS-in-JS |
 | KaTeX | 轻量级数学公式渲染，速度快 | MathJax |
 | react-markdown + remark-gfm | 文档生成结果富文本渲染 | 纯文本展示 |
-| jspdf | PDF 导出（支持中文和分页） | - |
+| JSZip | 打包 OOXML，生成 Word(.docx)（手写 `word/*.xml`，不引重型 docx 库） | - |
+| PDF 自研生成器 | 每页 Canvas 位图 + `3 Tr` 隐形文字层：不嵌字体（Windows 上不嵌字体的矢量 CJK 必然整页空白）、不走浏览器打印（打印会栅格化，文字永不可复制） | jspdf / 浏览器打印 / 嵌入 CJK 字体（单文件产物撑不住） |
 | 组件化架构 | 复用性强，便于维护 | 单文件实现 |
 | 模块化目录结构 | 职责清晰，便于扩展 | 扁平目录 |
 | HistoryContext + Context 模式 | 跨实例状态同步 | useState + key prop 强制重挂载 |
@@ -914,7 +926,8 @@ v2 架构下旧的 `hooks/useApiKey.ts`、`services/glmAIService.ts` 及 3 个�
 | 样式方案 | Tailwind CSS | 3.x |
 | 数学公式 | KaTeX | 0.16.x |
 | Markdown 渲染 | react-markdown + remark-gfm | - |
-| PDF 导出 | jspdf | - |
+| Word 导出 | JSZip + 手写 OOXML（`utils/exportDocx.ts`） | - |
+| PDF 导出 | 自研（`canvasRenderer` + `exportPdf` + `pdfCore`；位图页 + 隐形文字层） | - |
 | AI 服务 | OpenAI 兼容协议（多厂商预设 + 用户自定义厂商） | - |
 | 流式协议 | SSE（`stream:true`）+ 增量 JSON 解析 | - |
 
@@ -1170,6 +1183,78 @@ SSE chunk ─► sseReader ─► StreamingJSONParser.push(chunk)
 4. 任一降级结果通过 `storageWarning` 交给收藏页显示分档横幅（**绝不静默失败** —— 旧实现只 `console.error`，用户看到的是"界面显示已收藏、刷新后消失"）。
 
 另：收藏去重与星标判定统一为「类型 + 收藏夹 + 标题」指纹（此前 `addFavorite` 用 `JSON.stringify` 深度比对、`isFavorite` 只比标题，口径不一致会"显示已收藏却又能新增一条"，且对含 base64 的对象逐条深度序列化是性能陷阱）。
+
+### 10.9 导出层：复制与导出同源 + 位图页 PDF + 多出口口径对齐（v1.7.3）
+
+**动机（一条缺陷链）**：导出文件"丢一半内容"（知识脉络 / 试题 / 趣味知识整段消失），
+而"复制"出口一直有；随后又发现公式不渲染、PDF 整页看不见；再拿 Word 与 PDF 逐项对照，
+露出三处不一致（首标题格式、多一块导图大纲、正文示意图全部丢失）。四个症状指向同一条链路，
+所以这一版把导出层整体重做，而不是逐条打补丁。
+
+#### 10.9.1 复制与导出必须同源（消除双写）
+
+`SearchResults.handleCopy` 曾有一份约 90 行手写 Markdown 拼接器，`generateKnowledgeNote`
+又写一份 —— 任一侧加字段另一侧没加，就会出现"页面有、导出没有"。（同一坑吃过两次：
+早先"导出不含概览"、后来"导出丢三段内容"。）
+
+**契约**：`handleCopy` 直接取 `generateKnowledgeNote(data).md`；新序列化一律进
+`utils/serialize.ts`，枚举文案只在 `utils/knowledgeLabels.ts`。剪贴板与下载收敛到
+`utils/clipboard.ts`：`copyText()` 三级降级（Async Clipboard → `execCommand` → `failed`）
+且**永不抛异常** —— 发布形态是 `file://`，那里 `navigator.clipboard` 可能是 `undefined`，
+裸调会抛 `TypeError` 且无任何提示。
+
+#### 10.9.2 PDF：位图页 + 隐形文字层（为什么不用打印、也不嵌字体）
+
+| 路线 | 结果 |
+|---|---|
+| 浏览器打印 | 中文正常，但打印对话框把页面栅格化 → **位图 PDF**（实测 6 页 / 文本长度 0）→ 永不可复制 |
+| 不嵌字体的矢量 CJK（`/STSong-Light` + `/UniGB-UCS2-H`） | 结构合规、pdf.js 能提取到文字，但 Windows（Chrome / Edge / PDFium / pdf.js）都没有这套字形 → 实测每页 inkRatio ≈ 0.001，屏幕上等于白纸 |
+| **位图页 + `3 Tr` 隐形文字层**（现行） | 字形由位图负责、复制检索由文字层负责 |
+
+**结构**（三件套，零第三方依赖）：`canvasRenderer.ts`（浏览器渲染层把每页画成 canvas，
+2× 超采样 ≈144 DPI）→ `exportPdf.ts`（组页）→ `pdfCore.ts`（手写 PDF 对象：JPEG 作
+`/DCTDecode` XObject 铺满整页，再补一层渲染模式 `3 Tr` 的隐形文字层）。
+
+**不变量**：
+- 隐形文字层的 record **只能在真正 `fillText` 的地方登记**，事后重排一定对不上；
+- 位图流字节数必须与 `/Length` 严格相等（多一个换行会吃掉 JPEG 最后一个字节）；
+- 每页引用互不相同的 XObject（跨页复用同一张位图 = 第 2 页起全显示第 1 页）。
+
+#### 10.9.3 一个内容多出口：口径对齐 + 差异清单
+
+PDF 出口走**结构化数据**（`buildKnowledgeBlocks(data)` 直接读字段），Word 出口走
+**Markdown**（`generateKnowledgeNote(...).md` 再 `parseMarkdown`），两者能力天然不等价 ——
+差异必须显式维护，否则用户一眼能看出"不是一套东西"：
+
+| 差异点 | PDF | Word | 处理 |
+|---|---|---|---|
+| 首标题 | `title` 块（20pt 左对齐 + 青色下划线） | 曾把 `# 标题` **改写成普通段落** → 出现"大标题 + 同文小字"双标题 | 同文 → 整块丢弃；异文 → 保留 Heading1；`Title` 样式对齐 PDF。**没有"标题变正文"这第三种身份** |
+| 思维导图 | 横向导图页（结构化数据，本无文字大纲） | 附录页 + 正文里还有一段「思维导图结构」大纲（`parseMarkdown` 不解析嵌套缩进 → 父/子压成同一层） | `buildDocx` 在**有附录页时**剥掉该区块（`stripMindMapSection`） |
+| 正文示意图 | 见 10.9.4 | 见 10.9.4 | 两侧统一接入 |
+
+#### 10.9.4 正文示意图：导出链整块能力缺失
+
+页面上配图有四条来源（`image` 直链 / `imageData` 多模态 base64 / 关键词检索 / `svg` 手绘），
+而导出层对前三个字段**零引用** —— 所以"所有文档都丢示意图"。
+
+新增采集层 `utils/exportFigures.ts`（`collectKnowledgeFigures`）：把可用图源统一转成
+"可 `drawImage` 的对象 + 位图字节 + data URL"；**单张失败一律降级、绝不抛**（导出不能因为
+配图失败整份失败）；拿不到的远程图退成一行图题，**不静默吞掉**（否则用户以为这题本来没图）。
+
+| 出口 | 处理 |
+|---|---|
+| PDF | `CanvasCtx.drawImage` + 图片块：占满可用宽、居中、下方灰色小字图题；**高度上限取页高 45%**（无上限时竖长图永远放不下，`ensure` 反复换页直到翻爆） |
+| Word | 序列化层只在**确实拿得到图**时写 `![alt](figure:key)` 标记（那份 md 同时是"复制"出口的正文，塞 base64 会把剪贴板撑到几百 KB）；Word 解析到标记换真位图；媒体与导图**共用同一套 rId / media 分配器**（旧实现把 `rId3` 硬编码给导图，正文再插图必然撞号，而 Word 只会含糊报"内容有问题"） |
+| HTML | 内联 data URL（单文件 HTML 本来就该自带图） |
+| txt / md | 不出图，保留一行提示 |
+
+**同步边界**：canvas 的 `drawImage` 是同步的，图片解码天生异步 —— 异步采集放在
+`export.ts` 最外层 `await` 一次、三出口共用（避免各采各的导致"一次成功一次失败"而漂移），
+排版/渲染链保持同步（单测可直接驱动）。
+
+**顺带修掉的缺陷**：`svgWithIntrinsicSize` 原先在整段 SVG 源码里搜 `width` / `height`，
+子元素（`<rect width="300" height="180">`）会把"已有尺寸"分支误判命中 → 跳过 viewBox 注入 →
+`<img>` 退回浏览器给无尺寸 SVG 的默认值（实测 320×200 被读成 **240×150**）。改为只在根标签上找尺寸。
 
 ---
 

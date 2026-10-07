@@ -7,6 +7,7 @@ import {
   type CanvasCtx,
   type CanvasPageOutput,
 } from './canvasRenderer';
+import type { FigureMap } from './exportFigures';
 
 /**
  * 知识笔记 / 文档 → PDF（Canvas 渲染成位图 + 隐形文字层）。
@@ -81,18 +82,24 @@ function pagesToPdfBytes(pages: CanvasPageOutput[]): Uint8Array {
 }
 
 /**
- * 知识笔记 → PDF。
+ * 知识笔记 → PDF（**同步**，图必须已经采集好）。
  *
  * 思维导图单独一张**横向页**，接在正文之后（用户原要求"单独给一页（横向）"）。
  * 没有导图时不产生空白横向页。
+ *
+ * 保持同步是刻意的：canvas 的 `drawImage` 是同步的，图片解码才是异步的。
+ * 把异步边界留在外面（`buildKnowledgePdfAsync`），排版这一层就能被单测直接驱动。
  */
 export function buildKnowledgePdf(
   data: KnowledgeCardData | GeneratedKnowledge,
-  createCtx: CanvasCtxFactory = createRealCanvasCtx
+  createCtx: CanvasCtxFactory = createRealCanvasCtx,
+  /** 已解码的示意图（概念配图 / 试题配图）。不传 = 不含配图 */
+  figures?: FigureMap
 ): Uint8Array {
-  const pages = renderKnowledgePages(data, createCtx);
+  const pages = renderKnowledgePages(data, createCtx, undefined, figures);
   return pagesToPdfBytes(pages);
 }
+
 
 /**
  * Markdown 文本 → PDF（给"文档生成"模块用）。

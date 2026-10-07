@@ -3,6 +3,8 @@ import { readableLatexInText } from './latexToText';
 import { getCurrentStrings } from '../i18n/strings';
 import { safeFilename, triggerDownload } from './clipboard';
 import { renderMindMapImage } from './canvasRenderer';
+import type { ExportFigure } from './canvasRenderer';
+import type { FigureMap } from './exportFigures';
 import type { MindMapNode } from '../types';
 
 /**
@@ -59,6 +61,14 @@ type Block =
   | { kind: 'bullets'; items: string[] }
   | { kind: 'numbers'; items: string[] }
   | { kind: 'quote'; text: string }
+  /**
+   * 图片行（`![alt](figure:concept:0)`）。
+   *
+   * 序列化层（`export.ts`）刻意只写**标记**不写 base64 —— 那份 md 同时是
+   * "复制"出口的正文，塞进几百 KB base64 会毁掉剪贴板体验。
+   * 真正的位图由这里按 `figures` 里的 key 取出来嵌进 `word/media/*`。
+   */
+  | { kind: 'figure'; alt: string; src: string }
   | { kind: 'rule' };
 
 /**
@@ -85,6 +95,14 @@ function parseMarkdown(md: string): Block[] {
     // 分隔线（排除 `---` 表格分隔符那种三连符号的上下文，交由表格分支处理）
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
       blocks.push({ kind: 'rule' });
+      i++;
+      continue;
+    }
+
+    // 图片行：整行就是一个 `![alt](src)`（序列化层只在图存在时才写这一行）
+    const figure = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(trimmed);
+    if (figure) {
+      blocks.push({ kind: 'figure', alt: figure[1], src: figure[2] });
       i++;
       continue;
     }
@@ -154,7 +172,15 @@ function parseMarkdown(md: string): Block[] {
     const parts: string[] = [];
     while (i < lines.length) {
       const t = lines[i].trim();
-      if (!t || /^#{1,6}\s/.test(t) || /^[-*+]\s+/.test(t) || /^\d+[.)]\s+/.test(t) || /^>\s?/.test(t) || /^(-{3,}|\*{3,}|_{3,})$/.test(t)) break;
+      if (
+        !t ||
+        /^#{1,6}\s/.test(t) ||
+        /^!\[/.test(t) ||
+        /^[-*+]\s+/.test(t) ||
+        /^\d+[.)]\s+/.test(t) ||
+        /^>\s?/.test(t) ||
+        /^(-{3,}|\*{3,}|_{3,})$/.test(t)
+      ) break;
       parts.push(t);
       i++;
     }
@@ -189,7 +215,22 @@ function paragraphXml(text: string, style?: string): string {
   return `<w:p>${pPr}${renderRuns(text)}</w:p>`;
 }
 
-function blocksToXml(blocks: Block[]): string {
+/** 渲染图片块要用的资源：图字典 + 媒体登记器（rId 由登记器统一分配） */
+interface FigureRenderCtx {
+  figures?: FigureMap;
+  /** 登记一张要写进 `word/media/*` 的位图，返回它的关系 id */
+  addMedia: (ext: 'png' | 'jpeg', bytes: Uint8Array) => string;
+}
+
+/** 从 `figure:concept:0` 形式的 src 里取出真正的图（取不到返回 undefined → 调用方降级） */
+function figureFor(src: string, figures?: FigureMap): ExportFigure | undefined {
+  const key = /^figure:(.+)$/.exec(src.trim())?.[1];
+  if (!key) return undefined;
+  const fig = figures?.get(key);
+  return fig && fig.bytes.length > 0 ? fig : undefined;
+}
+
+function blocksToXml(blocks: Block[], ctx: FigureRenderCtx): string {
   const parts: string[] = [];
 
   for (const block of blocks) {
@@ -218,6 +259,27 @@ function blocksToXml(blocks: Block[]): string {
           `<w:p><w:pPr><w:ind w:left="480"/><w:pBdr><w:left w:val="single" w:sz="18" w:space="8" w:color="94A3B8"/></w:pBdr></w:pPr>${renderRuns(block.text)}</w:p>`
         );
         break;
+      case 'figure': {
+        const fig = figureFor(block.src, ctx.figures);
+        if (fig) {
+          // 宽度先占满正文可用宽，高度由宽高比推出（再由 imageParagraphXml 的
+          // 高度上限兜底，防止一张竖长图吃掉整页）。居中显示。
+          const heightPt = PORTRAIT_TEXT_W_PT / Math.max(0.05, fig.aspect);
+          const relId = ctx.addMedia(fig.ext, fig.bytes);
+          parts.push(
+            imageParagraphXml(
+              { bytes: fig.bytes, ext: fig.ext, widthPt: PORTRAIT_TEXT_W_PT, heightPt },
+              relId,
+              PORTRAIT_TEXT_W_PT,
+              PORTRAIT_TEXT_H_PT * 0.45
+            )
+          );
+        } else if (block.alt) {
+          // 拿不到字节（远程图被跨域挡住等）：留一行图题，别让读者以为这里本来就没图
+          parts.push(`<w:p><w:pPr><w:jc w:val="center"/></w:pPr>${renderRuns(`（${block.alt}）`)}</w:p>`);
+        }
+        break;
+      }
       case 'rule':
         parts.push(
           '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="CBD5E1"/></w:pBdr></w:pPr></w:p>'
@@ -255,6 +317,10 @@ function numberingXml(): string {
  * **`w:eastAsia="Microsoft YaHei"` 是中文能正常显示的关键**：OOXML 里中西文
  * 各走一套字体属性，只设 `w:ascii`（西文）时中文会落到 Word 默认字体，
  * 在部分系统上变成方框。雅黑是 Windows 通用中文字体，缺它时 Word 会自动回退。
+ *
+ * **`Title` 必须与 PDF 的首标题同格式**（左对齐 / 20pt / `#0F172A` / 下方一条
+ * 青色分割线，对应 canvasRenderer 的 `title` 块：`C.title` 文字 + `C.accent` 下划线）。
+ * 旧版是居中 + 22pt + 青色，同一份内容两个出口长得不一样，用户直接看出"不一致"。
  */
 function stylesXml(): string {
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -280,8 +346,8 @@ ${[1, 2, 3, 4, 5, 6]
   .join('\n')}
   <w:style w:type="paragraph" w:styleId="Title">
     <w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>
-    <w:pPr><w:jc w:val="center"/><w:spacing w:after="240"/></w:pPr>
-    <w:rPr><w:b/><w:color w:val="0D9488"/><w:sz w:val="44"/></w:rPr>
+    <w:pPr><w:spacing w:before="0" w:after="200"/><w:pBdr><w:bottom w:val="single" w:sz="12" w:space="6" w:color="0D9488"/></w:pBdr></w:pPr>
+    <w:rPr><w:b/><w:color w:val="0F172A"/><w:sz w:val="40"/><w:szCs w:val="40"/></w:rPr>
   </w:style>
   <w:style w:type="paragraph" w:styleId="ListBullet">
     <w:name w:val="List Bullet"/><w:basedOn w:val="Normal"/><w:qFormat/>
@@ -293,6 +359,15 @@ ${[1, 2, 3, 4, 5, 6]
   </w:style>
 </w:styles>`;
 }
+
+/**
+ * 纵向正文页的可用区（pt）= (11906 - 1440×2)/20 × (16838 - 1440×2)/20。
+ *
+ * 与 `buildDocx` 里 `portraitSect` 的 `w:pgSz` / `w:pgMar` **同源** ——
+ * 改了一处不改另一处，示意图就会溢出到页边距外被 Word 裁掉。
+ */
+const PORTRAIT_TEXT_W_PT = (11906 - 1440 * 2) / 20;
+const PORTRAIT_TEXT_H_PT = (16838 - 1440 * 2) / 20;
 
 /**
  * 附录页里要嵌的思维导图位图。
@@ -367,73 +442,72 @@ function imageParagraphXml(image: AppendixImage, relId: string, maxWpt: number, 
 export async function buildDocx(
   md: string,
   title: string,
-  landscapeAppendix?: LandscapeAppendix
+  landscapeAppendix?: LandscapeAppendix,
+  /**
+   * 已采集的示意图（概念配图 / 试题配图）。正文里的 `![alt](figure:key)` 标记
+   * 靠它换成真位图；不传时标记退化成一行图题。
+   */
+  figures?: FigureMap
 ): Promise<Blob> {
   const s = getCurrentStrings();
 
   const zip = new JSZip();
 
-  // 空字节 = 没截到图。这里就地归一化，避免后面出现"rels 声明了 image 关系、
+  // ------------------------------------------------------------ 媒体登记
+  //
+  // 导图位图与正文示意图**共用同一套 rId / media 分配**。旧实现把 `rId3`
+  // 硬编码给导图，一旦正文也要插图就会撞号 —— 两个 `r:embed` 指向同一个 id，
+  // Word 只会含糊地说"内容有问题"，查起来极其费劲。
+  const media: { name: string; bytes: Uint8Array }[] = [];
+  const mediaExts = new Set<'png' | 'jpeg'>();
+  const mediaRels: string[] = [];
+  const addMedia = (ext: 'png' | 'jpeg', bytes: Uint8Array): string => {
+    const name = `figure${media.length + 1}.${ext}`;
+    media.push({ name, bytes });
+    mediaExts.add(ext);
+    // rId1 styles / rId2 numbering 已占，媒体从 rId3 起
+    const id = `rId${3 + media.length - 1}`;
+    mediaRels.push(
+      `  <Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${name}"/>`
+    );
+    return id;
+  };
+
+  // 空字节 = 没截到图。这里就地归一化，避免"rels 声明了 image 关系、
   // media 目录里却没有文件"的悬空引用（Word 会报文档损坏）。
-  const image =
+  const mindMapImage =
     landscapeAppendix?.image && landscapeAppendix.image.bytes.length > 0
       ? landscapeAppendix.image
       : undefined;
-  const mediaName = image ? `mindmap.${image.ext}` : '';
 
-  zip.file(
-    '[Content_Types].xml',
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>${
-    image ? `\n  <Default Extension="${image.ext}" ContentType="image/${image.ext}"/>` : ''
-  }
-  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
-  <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
-  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
-  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
-</Types>`
-  );
+  /**
+   * 文档正文。
+   *
+   * 首行 `# xxx` 与文档标题同文时**整块丢弃** —— 上面 `titleXml` 已经用 `Title`
+   * 样式渲染过同一个标题了，再输出一遍就是重复标题。
+   *
+   * ⚠️ 旧实现是把它**降级成普通段落**（而不是丢弃），于是 Word 里出现了
+   * "居中大号标题 + 紧接一行同样文字的小号正文"这种双标题，用户实测反馈
+   * "Word 首标题格式和 PDF 不一致"。降级是错的：要么它是标题（用 Title 渲染），
+   * 要么它不该出现（丢弃），没有"变成正文"这种第三种身份。
+   *
+   * 首标题与 `title` **不同文**时保留为 Heading1 —— 说明这份内容有自己的标题，
+   * 不是文档标题的重复。
+   */
+  // 有导图页（附录）时，正文里的导图文字大纲必须剥掉 —— 它是给 txt/md/html
+  // 出口准备的载体，而 Word 已经有独立的横向导图页，留着就是同一份导图出现两遍，
+  // 且在 docx 里必然失去层级（见 stripMindMapSection 说明）。
+  // 剥离放在 buildDocx 内部而不是调用方：这是"有附录页"这条不变式的一部分，
+  // 谁调用都绕不过去。
+  const bodySource = landscapeAppendix ? stripMindMapSection(md, s.exportNote.mindMap) : md;
 
-  zip.folder('_rels')!.file(
-    '.rels',
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
-  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
-</Relationships>`
-  );
-
-  zip.folder('word')!
-    .file(
-      '_rels/document.xml.rels',
-      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>${
-    image
-      ? `\n  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${mediaName}"/>`
-      : ''
-  }
-</Relationships>`
-    )
-    .file('styles.xml', stylesXml())
-    .file('numbering.xml', numberingXml());
-
-  // 导图位图。JSZip 收到 Uint8Array 会按二进制原样写入（不要转成 string，
-  // 否则二进制被当文本编码一遍，Word 打开就是"图片损坏"）。
-  if (image) {
-    zip.file(`word/media/${mediaName}`, image.bytes);
-  }
-
-  // 文档正文：一级标题改用 Title 样式居中，其余保持原层级
-  const blocks = parseMarkdown(md);
-  const bodyBlocks: Block[] = blocks.map((b, idx) =>
-    b.kind === 'heading' && b.level === 1 && idx === 0 ? { kind: 'paragraph', text: b.text } : b
-  );
+  const blocks = parseMarkdown(bodySource);
+  const bodyBlocks: Block[] = blocks.filter((b, idx) => {
+    if (idx !== 0 || b.kind !== 'heading' || b.level !== 1) return true;
+    return b.text.trim() !== title.trim();
+  });
+  // 渲染正文会**顺带登记**要用到的媒体（示意图），所以必须在写 zip 之前完成
+  const bodyXml = blocksToXml(bodyBlocks, { figures, addMedia });
 
   const timestamp = new Date().toISOString();
   zip.folder('docProps')!
@@ -483,8 +557,13 @@ export async function buildDocx(
   const appendixXml = landscapeAppendix
     ? `<w:p><w:pPr>${portraitSect}</w:pPr></w:p>` +
       `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>${renderRuns(landscapeAppendix.title)}</w:p>` +
-      (image
-        ? imageParagraphXml(image, 'rId3', LANDSCAPE_TEXT_W_PT, LANDSCAPE_TEXT_H_PT - 52)
+      (mindMapImage
+        ? imageParagraphXml(
+            mindMapImage,
+            addMedia(mindMapImage.ext, mindMapImage.bytes),
+            LANDSCAPE_TEXT_W_PT,
+            LANDSCAPE_TEXT_H_PT - 52
+          )
         : landscapeAppendix.lines
             .map((line) => {
               const indent = line.match(/^\s*/)?.[0].length ?? 0;
@@ -497,13 +576,62 @@ export async function buildDocx(
             .join(''))
     : '';
 
+  // ------------------------------------------------------------ 写包
+  //
+  // **顺序要求**：正文与附录都要先渲染完（它们会登记媒体），才能定下
+  // `[Content_Types].xml` 里的图片扩展名声明和 rels 里的 image 关系 ——
+  // 提前写就会出现"声明了 png、包里却没有 png"这种悬空引用，Word 直接报损坏。
+  zip.file(
+    '[Content_Types].xml',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>${[...mediaExts]
+    .map((ext) => `\n  <Default Extension="${ext}" ContentType="image/${ext}"/>`)
+    .join('')}
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+  <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+</Types>`
+  );
+
+  zip.folder('_rels')!.file(
+    '.rels',
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
+  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>
+</Relationships>`
+  );
+
+  zip.folder('word')!
+    .file(
+      '_rels/document.xml.rels',
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>${
+    mediaRels.length ? `\n${mediaRels.join('\n')}` : ''
+  }
+</Relationships>`
+    )
+    .file('styles.xml', stylesXml())
+    .file('numbering.xml', numberingXml());
+
+  // 位图字节：JSZip 收到 Uint8Array 会按二进制原样写入（不要转成 string，
+  // 否则二进制被当文本编码一遍，Word 打开就是"图片损坏"）。
+  for (const m of media) zip.file(`word/media/${m.name}`, m.bytes);
+
   zip.file(
     'word/document.xml',
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
   <w:body>
     ${titleXml}
-    ${blocksToXml(bodyBlocks)}
+    ${bodyXml}
     ${appendixXml}
     ${landscapeAppendix ? landscapeSect : portraitSect}
   </w:body>
@@ -522,6 +650,46 @@ export async function buildDocx(
 export async function exportDocx(md: string, title: string, fallbackName?: string): Promise<void> {
   const blob = await buildDocx(md, title);
   triggerDownload(blob, `${safeFilename(title, fallbackName ?? 'document')}.docx`);
+}
+
+/**
+ * 从正文 Markdown 里剥掉「思维导图」文字大纲区块。
+ *
+ * **为什么必须剥**：`generateKnowledgeNote` 为了让 txt / md / html 出口也有导图
+ * 内容，会把导图序列化成 `## 思维导图结构` + `- 节点` 大纲；而 Word 出口**另外**
+ * 有一张横向导图页。两者并存 = 同一份导图在 Word 里出现两遍。
+ *
+ * 更糟的是这段大纲在 docx 里必然**失去层级**：`parseMarkdown` 的列表分支不解析
+ * 嵌套缩进（`- ` 前的空格被 trim 掉），父节点和子节点会渲染成同一层 ——
+ * 用户看到的就是一串平铺项。相比之下 PDF 出口走结构化数据、本来就没有这段，
+ * 这正是"Word 和 PDF 内容不一致"的来源之一。
+ *
+ * 精确匹配 `## {label}` 整行，不碰同名的三级标题或正文里出现的同名短语。
+ */
+function stripMindMapSection(md: string, label: string): string {
+  const target = `## ${label}`.trim();
+  const lines = md.split('\n');
+  const out: string[] = [];
+  let skipping = false;
+
+  for (const line of lines) {
+    const t = line.trim();
+    if (!skipping) {
+      if (t === target) {
+        skipping = true;
+        continue;
+      }
+      out.push(line);
+      continue;
+    }
+    // 跳过中：遇到下一个二级标题、或页脚分隔线 → 结束跳过，且当前行保留
+    if (/^##\s/.test(t) || /^-{3,}$/.test(t)) {
+      skipping = false;
+      out.push(line);
+    }
+  }
+
+  return out.join('\n');
 }
 
 /** 缩进文字版导图 —— 只在截不出图时用（降级路径） */
@@ -547,7 +715,9 @@ export async function exportKnowledgeDocx(
   md: string,
   title: string,
   mindMap: MindMapNode[] | undefined,
-  fallbackTitle: string
+  fallbackTitle: string,
+  /** 已采集的示意图，与 PDF / HTML 出口共用同一份（见 export.ts 的采集说明） */
+  figures?: FigureMap
 ): Promise<void> {
   const s = getCurrentStrings();
 
@@ -577,6 +747,6 @@ export async function exportKnowledgeDocx(
     appendix = { title: `${title} · ${s.search.sections.mindMap}`, lines, image };
   }
 
-  const blob = await buildDocx(md, title, appendix);
+  const blob = await buildDocx(md, title, appendix, figures);
   triggerDownload(blob, `${safeFilename(title, fallbackTitle)}.docx`);
 }

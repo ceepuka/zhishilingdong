@@ -5,6 +5,7 @@ import { examTypeLabel, difficultyLabel, factTypeLabel } from './knowledgeLabels
 import { safeFilename, downloadText, triggerDownload } from './clipboard';
 import { exportDocx, exportKnowledgeDocx } from './exportDocx';
 import { buildKnowledgePdf, buildMarkdownPdf } from './exportPdf';
+import { collectKnowledgeFigures, type FigureMap } from './exportFigures';
 
 /**
  * 下载文本文件（保留旧名，向后兼容既有调用点）。
@@ -34,7 +35,21 @@ function hasKnowledgeContext(kc: NonNullable<GeneratedKnowledge['knowledgeContex
   );
 }
 
-export function generateKnowledgeNote(data: KnowledgeCardData | GeneratedKnowledge, relatedNodes?: KnowledgeNode[]): { txt: string; md: string; html: string } {
+/**
+ * 知识数据 → 三种文本形态。
+ *
+ * @param figures 已采集的示意图。**不传 = 不含图**（"复制"与 txt / md 出口就是这样：
+ *   往剪贴板或纯文本里塞 base64 是灾难）。传了则：
+ *   md 出 `![alt](figure:key)` 标记（供 Word 出口按位置嵌图）、
+ *   html 直接内联 data URL（单文件 HTML 本来就该自带图）、txt 出一行提示。
+ *   页面上的图分四级兜底，其中"关键词检索"是渲染期 hook 的结果、数据里没有，
+ *   导出能带上的只有 image / imageData / svg 三条（见 exportFigures.ts）。
+ */
+export function generateKnowledgeNote(
+  data: KnowledgeCardData | GeneratedKnowledge,
+  relatedNodes?: KnowledgeNode[],
+  figures?: FigureMap
+): { txt: string; md: string; html: string } {
   const s = getCurrentStrings();
   const t = s.exportNote;
   const c = s.search.concept;
@@ -145,13 +160,24 @@ export function generateKnowledgeNote(data: KnowledgeCardData | GeneratedKnowled
       mdContent += `**${t.overview}:** ${overview}\n\n`;
       htmlContent += `<p><strong>${t.overview}:</strong> ${overview}</p>\n`;
     }
-    (data.concepts as Array<{ type: string; title: string; content: { elementary: string; advanced: string }; notation?: string; example?: string; keyPoints?: string[]; pitfalls?: string[] }>).forEach((concept) => {
+    (data.concepts as Array<{ type: string; title: string; content: { elementary: string; advanced: string }; notation?: string; example?: string; keyPoints?: string[]; pitfalls?: string[] }>).forEach((concept, ci) => {
       const typeLabel = concept.type === 'definition' ? c.typeDefinition :
                         concept.type === 'formula' ? c.typeFormula :
                         concept.type === 'theorem' ? c.typeTheorem : c.typePrinciple;
       txtContent += `### ${typeLabel}: ${concept.title}\n${t.elementary}: ${concept.content.elementary}\n${t.advanced}: ${concept.content.advanced}\n\n`;
       mdContent += `### ${typeLabel}: ${concept.title}\n**${t.elementary}:** ${concept.content.elementary}\n\n**${t.advanced}:** ${concept.content.advanced}\n\n`;
       htmlContent += `<h3>${typeLabel}: ${concept.title}</h3><p><strong>${t.elementary}:</strong> ${concept.content.elementary}</p><p><strong>${t.advanced}:</strong> ${concept.content.advanced}</p>\n`;
+
+      // 概念示意图：跟着概念标题走，位置与 PDF 出口的图块一致。
+      // md 里放的是**标记**而不是 base64 —— md 会被"复制"出口复用，塞 base64 会
+      // 把剪贴板撑到几百 KB；Word 出口解析到标记再换成真正的位图。
+      const fig = figures?.get(`concept:${ci}`);
+      if (fig) {
+        const alt = `${concept.title}${c.figureSuffix}`;
+        txtContent += `${s.common.exportActions.figureOmitted}\n`;
+        mdContent += `![${alt}](figure:concept:${ci})\n\n`;
+        htmlContent += `<img src="${fig.dataUrl}" alt="${alt}" style="max-width:100%;height:auto;margin:12px 0"/>\n`;
+      }
       if (concept.notation) {
         txtContent += `${t.formula}: ${concept.notation}\n\n`;
         mdContent += `\`\`\`latex\n${concept.notation}\n\`\`\`\n\n`;
@@ -441,9 +467,15 @@ export function generateKnowledgeNote(data: KnowledgeCardData | GeneratedKnowled
         htmlContent += '</ul>\n';
       }
 
-      // "如图"型试题缺图就是道废题（见 MEMORY：试题"如图"必须配图否则改写纯文字）。
-      // 导出成文字后无法带图，必须留一行提示，否则用户会直接答一个无图的题。
-      if (q.image || q.imageData || q.svg) {
+      // 试题配图：能拿到字节就出真图；拿不到（远程图被跨域挡住 / 图只在渲染期
+      // 检索到）才退回提示行 —— "如图"型试题缺图就是道废题，宁可多说一句，
+      // 也不能让用户去答一道看不见图的几何题。
+      const fig = figures?.get(`question:${qi}`);
+      if (fig) {
+        txtContent += `${s.common.exportActions.figureOmitted}\n`;
+        mdContent += `![${typeLabel}](figure:question:${qi})\n\n`;
+        htmlContent += `<img src="${fig.dataUrl}" alt="${typeLabel}" style="max-width:100%;height:auto;margin:12px 0"/>\n`;
+      } else if (q.image || q.imageData || q.svg) {
         const figureNote = s.common.exportActions.figureOmitted;
         txtContent += `${figureNote}\n`;
         mdContent += `> ${figureNote}\n`;
@@ -516,11 +548,25 @@ export async function exportKnowledgeNote(
   relatedNodes?: KnowledgeNode[]
 ): Promise<void> {
   const s = getCurrentStrings();
-  const { txt, md, html } = generateKnowledgeNote(data, relatedNodes);
   const title = ('title' in data && data.title)
     ? data.title
     : ('topic' in data && data.topic) ? (data as GeneratedKnowledge).topic : s.exportNote.defaultTitle;
   const base = safeFilename(title, s.exportNote.defaultTitle);
+
+  /**
+   * 示意图只在**带图义的三个出口**采集一次，三个出口共用同一份。
+   *
+   * - txt / md 不采集：往纯文本里塞 base64 是灾难，往 md 里塞
+   *   `figure:concept:0` 标记又会跟着"复制"出口进剪贴板。
+   * - **一次采集给三个出口用**（而不是各采各的）：同一份内容在 html 和 Word 里
+   *   的图必须完全相同，各采一次就可能因为一次成功一次失败而漂移。
+   * - 采集不会抛（单张图失败只是少一张，见 exportFigures），所以导出不会
+   *   因为某张图拿不到而整份失败。
+   */
+  const needsFigures = format === 'docx' || format === 'html' || format === 'pdf';
+  const figures = needsFigures ? await collectKnowledgeFigures(data) : undefined;
+
+  const { txt, md, html } = generateKnowledgeNote(data, relatedNodes, figures);
 
   switch (format) {
     case 'md':
@@ -534,12 +580,15 @@ export async function exportKnowledgeNote(
         md,
         title,
         'mindMap' in data ? (data.mindMap as MindMapNode[]) : undefined,
-        s.exportNote.defaultTitle
+        s.exportNote.defaultTitle,
+        figures
       );
       return;
     case 'pdf':
       triggerDownload(
-        new Blob([buildKnowledgePdf(data).slice().buffer as ArrayBuffer], {
+        // 第二参是 canvas 工厂（传 undefined 用生产实现）—— 排版是同步的，
+        // 图片已经在上面采集完，这里直接喂进去。
+        new Blob([buildKnowledgePdf(data, undefined, figures).slice().buffer as ArrayBuffer], {
           type: 'application/pdf',
         }),
         `${base}.pdf`

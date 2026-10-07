@@ -378,3 +378,77 @@ describe('知识笔记 PDF — 思维导图横向独占一页（用户反馈的�
     expect(boxes.every(([w, h]) => h > w)).toBe(true);
   });
 });
+
+/**
+ * 正文示意图（概念配图 / 试题配图）进 PDF。
+ *
+ * 用户反馈"所有文档会丢失示意图内容"—— 此前导出链对概念配图的
+ * `image` / `imageData` / `svg` 三个字段**一个分支都没有**，图静默消失。
+ * 现在由 `export.ts` 采集后传进来，这里锁住"真的画上去了、尺寸合理"。
+ */
+describe('PDF — 正文示意图', () => {
+  const PAGE_W_PX = 595.28 * ((96 / 72) * 2);
+  const PAGE_H_PX = 841.89 * ((96 / 72) * 2);
+
+  function oneConcept(): GeneratedKnowledge {
+    return {
+      topic: '复数',
+      mindMap: [],
+      concepts: [{ type: 'definition', title: '复平面', content: { elementary: 'a', advanced: 'b' } }],
+      examples: [],
+      relatedResults: [],
+      knowledgeContext: { prerequisites: [], relatedTopics: [], learningPath: [] },
+      examQuestions: [],
+      interestingFacts: [],
+    } as unknown as GeneratedKnowledge;
+  }
+
+  const figure = {
+    image: { stub: true },
+    bytes: new Uint8Array([1, 2, 3]),
+    dataUrl: 'data:image/png;base64,xx',
+    ext: 'png' as const,
+    aspect: 2,
+    caption: '复平面',
+  };
+
+  /** 注入一个会记录 drawImage 调用的工厂（stub 本身不实现该可选方法） */
+  function drawingFactory(calls: number[][]) {
+    const { factory } = stubFactory();
+    const wrapped: CanvasCtxFactory = (w, h, l) => {
+      const ctx = factory(w, h, l);
+      ctx.drawImage = (_img, x, y, dw, dh) => calls.push([x, y, dw, dh]);
+      return ctx;
+    };
+    return wrapped;
+  }
+
+  it('按可用宽度画到页上、保持宽高比、不越界', () => {
+    const calls: number[][] = [];
+    buildKnowledgePdf(oneConcept(), drawingFactory(calls), new Map([['concept:0', figure]]));
+
+    expect(calls).toHaveLength(1);
+    const [x, y, w, h] = calls[0];
+    expect(w).toBeGreaterThan(0);
+    expect(h).toBeGreaterThan(0);
+    expect(w / h).toBeCloseTo(2, 1); // 宽高比不能被拉变形
+    expect(x).toBeGreaterThan(0);
+    expect(y).toBeGreaterThan(0);
+    expect(x + w).toBeLessThanOrEqual(PAGE_W_PX + 1);
+    expect(y + h).toBeLessThanOrEqual(PAGE_H_PX + 1);
+  });
+
+  it('不传 figures 时一张图都不画（未采集 = 不含配图，不是"画个空的"）', () => {
+    const calls: number[][] = [];
+    buildKnowledgePdf(oneConcept(), drawingFactory(calls));
+
+    expect(calls).toHaveLength(0);
+  });
+
+  it('figure 的 key 对不上时不画（拿不到字节就退化成提示行，而不是画错图）', () => {
+    const calls: number[][] = [];
+    buildKnowledgePdf(oneConcept(), drawingFactory(calls), new Map([['concept:9', figure]]));
+
+    expect(calls).toHaveLength(0);
+  });
+});
