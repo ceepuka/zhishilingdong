@@ -11,9 +11,9 @@ import {
 /**
  * 知识笔记 / 文档 → PDF（Canvas 渲染成位图 + 隐形文字层）。
  *
- * ## 为什么这样写（与 v1.8.0 路线不同）
+ * ## 为什么这样写（与上一版路线不同）
  *
- * v1.8.0 用 PDF 内置 CJK 字体（STSong-Light + UniGB-UCS2-H）+ 自带 ToUnicode CMap，
+ * 上一版用 PDF 内置 CJK 字体（STSong-Light + UniGB-UCS2-H）+ 自带 ToUnicode CMap，
  * 不嵌 FontFile。字节结构完全合规、文字也能被 pdf.js 正确**提取**，
  * 但 **Chrome / Edge / pdf.js 在 Windows 上都不给它配 CJK 字形**，
  * 实测渲染出来的页面**几乎全白**（用户桌面上的 复数.pdf 就是这样，

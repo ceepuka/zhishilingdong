@@ -9,7 +9,7 @@ import type { GeneratedKnowledge } from '../../types';
  * 背景（用户拿产物做对照，前后两轮反馈）：
  *  1. "打印 pdf 文字不可复制" → 打印产出的是位图 PDF（0 字体 0 文本）
  *  2. "完全剔除了思维导图等图片" → 导图在正文里退化成缩进列表，连线与框全丢
- *  3. "公式没渲染，pdf 看不见" → v1.8.0 的**非嵌字体矢量 PDF 在 Windows 上整页空白**
+ *  3. "公式没渲染，pdf 看不见" → 上一版的**非嵌字体矢量 PDF 在 Windows 上整页空白**
  *     （STSong-Light + UniGB-UCS2-H 结构完全合规，但 Chrome/Edge/pdf.js 都没有
  *     可用的 CJK 字形，155 个 Tj 全画不出字）
  *

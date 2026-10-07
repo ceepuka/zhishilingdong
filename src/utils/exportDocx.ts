@@ -2,14 +2,17 @@ import JSZip from 'jszip';
 import { readableLatexInText } from './latexToText';
 import { getCurrentStrings } from '../i18n/strings';
 import { safeFilename, triggerDownload } from './clipboard';
+import { renderMindMapImage } from './canvasRenderer';
+import type { MindMapNode } from '../types';
 
 /**
  * Word（.docx）导出 —— 用 JSZip 手写最小 OOXML，不引 `docx` 包。
  *
  * **为什么不直接用现成的 PDF 方案那套**：docx 本质是 zip 包（`[Content_Types].xml`
  * + `word/document.xml` + 关系文件），`docx` 这类库主要价值在自动处理编号、
- * 表格样式、图片嵌入 —— 本项目导出内容是纯文字 + 标题 + 列表，
- * 自己拼 XML 只有一百来行，却换来「零新增运行时代码体积」的收益。
+ * 表格样式、图片嵌入 —— 本项目导出内容是纯文字 + 标题 + 列表，唯一一张图
+ * （思维导图截图）的 DrawingML 也就二十来行，自己拼 XML 只有几百行，
+ * 却换来「零新增运行时代码体积」的收益。
  * 注意这与项目"单文件 HTML 内联发布"的形式约束直接相关：
  * 打包器会把所有 import 打进同一个 HTML，依赖越少产物越小。
  *
@@ -292,6 +295,64 @@ ${[1, 2, 3, 4, 5, 6]
 }
 
 /**
+ * 附录页里要嵌的思维导图位图。
+ *
+ * 单位是 **pt 的逻辑尺寸**，不是像素 —— 位图的实际像素由 `renderMindMapImage`
+ * 内部按 2× 超采样决定，这里的 `widthPt/heightPt` 只用来算 `wp:extent`（显示大小）。
+ */
+export interface AppendixImage {
+  bytes: Uint8Array;
+  /** 'png' 文字锐利 / 'jpeg' 体积小（canvas 不支持 toDataURL('image/png') 时的兜底） */
+  ext: 'png' | 'jpeg';
+  widthPt: number;
+  heightPt: number;
+}
+
+/** 横向附录页：图优先，文字是**降级**（canvas 不可用时至少不丢内容） */
+export interface LandscapeAppendix {
+  title: string;
+  /** 缩进文字（每层 4 空格）—— 只在没有 image 时用 */
+  lines: string[];
+  image?: AppendixImage;
+}
+
+/**
+ * 内嵌图片段落（DrawingML inline）。
+ *
+ * 导图在这里是**位图截图**，不是重画的形状：Word 里画真形状 + 连线要成套
+ * DrawingML，手写成本极高；而位图还有个额外好处 —— KaTeX 公式被一起"拍"进图里，
+ * 纯文字版只能把公式降级成 ASCII（`\frac{a}{b}` → `(a)/(b)`）。
+ *
+ * ⚠️ 下面这些部件缺一个 Word 就报"内容有问题"：
+ *   `word/media/*` + `[Content_Types].xml` 的 `Default Extension` +
+ *   `word/_rels/document.xml.rels` 的 image 关系 + `w:document` 上的
+ *   `xmlns:r` / `xmlns:wp` 声明。
+ * `wp:extent` / `a:ext` 是**显示尺寸**（EMU，1pt = 12700 EMU），与位图实际像素无关。
+ */
+function imageParagraphXml(image: AppendixImage, relId: string, maxWpt: number, maxHpt: number): string {
+  // 等比缩放到横向页可用区；上限 1.35 与 PDF 导图页同口径（避免小图被拉糊）
+  const fit = Math.min(maxWpt / image.widthPt, maxHpt / image.heightPt, 1.35);
+  const cx = Math.round(image.widthPt * fit * 12700);
+  const cy = Math.round(image.heightPt * fit * 12700);
+  return (
+    `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing>` +
+    `<wp:inline distT="0" distB="0" distL="0" distR="0">` +
+    `<wp:extent cx="${cx}" cy="${cy}"/>` +
+    `<wp:effectExtent l="0" t="0" r="0" b="0"/>` +
+    `<wp:docPr id="1" name="MindMap"/>` +
+    `<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>` +
+    `<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">` +
+    `<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+    `<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+    `<pic:nvPicPr><pic:cNvPr id="1" name="MindMap"/><pic:cNvPicPr/></pic:nvPicPr>` +
+    `<pic:blipFill><a:blip r:embed="${relId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
+    `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm>` +
+    `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>` +
+    `</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`
+  );
+}
+
+/**
  * 生成 docx Blob。
  *
  * `md` 是完整 Markdown（含一级标题作为文档标题）。导出内容里公式以
@@ -301,22 +362,33 @@ ${[1, 2, 3, 4, 5, 6]
  *   实现：正文节的 `sectPr` 要放在**正文最后一段的 pPr 里**（它标记"这一节结束"，
  *   写在 body 末尾会让整节方向都错），最后一节的 `sectPr` 放 body 末尾。
  *   不传则不生成，文档只有纵向一页节。
+ *   `image` 有值时导图以**内嵌位图**呈现（= 从画布截图），否则退回缩进文字。
  */
 export async function buildDocx(
   md: string,
   title: string,
-  landscapeAppendix?: { title: string; lines: string[] }
+  landscapeAppendix?: LandscapeAppendix
 ): Promise<Blob> {
   const s = getCurrentStrings();
 
   const zip = new JSZip();
+
+  // 空字节 = 没截到图。这里就地归一化，避免后面出现"rels 声明了 image 关系、
+  // media 目录里却没有文件"的悬空引用（Word 会报文档损坏）。
+  const image =
+    landscapeAppendix?.image && landscapeAppendix.image.bytes.length > 0
+      ? landscapeAppendix.image
+      : undefined;
+  const mediaName = image ? `mindmap.${image.ext}` : '';
 
   zip.file(
     '[Content_Types].xml',
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>${
+    image ? `\n  <Default Extension="${image.ext}" ContentType="image/${image.ext}"/>` : ''
+  }
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
   <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/>
@@ -341,11 +413,21 @@ export async function buildDocx(
       `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>${
+    image
+      ? `\n  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${mediaName}"/>`
+      : ''
+  }
 </Relationships>`
     )
     .file('styles.xml', stylesXml())
     .file('numbering.xml', numberingXml());
+
+  // 导图位图。JSZip 收到 Uint8Array 会按二进制原样写入（不要转成 string，
+  // 否则二进制被当文本编码一遍，Word 打开就是"图片损坏"）。
+  if (image) {
+    zip.file(`word/media/${mediaName}`, image.bytes);
+  }
 
   // 文档正文：一级标题改用 Title 样式居中，其余保持原层级
   const blocks = parseMarkdown(md);
@@ -386,29 +468,39 @@ export async function buildDocx(
     `</w:sectPr>`;
 
   /**
+   * 横向页正文区尺寸（pt）= (16838 - 1134×2)/20 × (11906 - 1134×2)/20。
+   * 位图按这个可用区等比缩放，超过就会溢出到页边距外被裁掉。
+   */
+  const LANDSCAPE_TEXT_W_PT = (16838 - 1134 * 2) / 20;
+  const LANDSCAPE_TEXT_H_PT = (11906 - 1134 * 2) / 20;
+
+  /**
    * 附录（思维导图横向页）。
-   * 导图内容用**缩进层级 + 项目符号**表达：Word 里的形状与连线要 DrawingML，
-   * 成本远大于收益；横向页足够宽，一层一行不挤，结构与层级完整保留。
+   *
+   * 有 `image` 就嵌图（= 从画布截图，公式一起进图），没有才退回**缩进层级 +
+   * 项目符号**的文字版 —— canvas 不可用（如单测环境）时至少内容不丢。
    */
   const appendixXml = landscapeAppendix
     ? `<w:p><w:pPr>${portraitSect}</w:pPr></w:p>` +
       `<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>${renderRuns(landscapeAppendix.title)}</w:p>` +
-      landscapeAppendix.lines
-        .map((line) => {
-          const indent = line.match(/^\s*/)?.[0].length ?? 0;
-          const text = line.trim();
-          if (!text) return '';
-          const indentTwips = Math.min(6, Math.floor(indent / 2)) * 240;
-          const pPr = indentTwips > 0 ? `<w:pPr><w:ind w:left="${indentTwips}"/></w:pPr>` : '';
-          return `<w:p>${pPr}${renderRuns(text)}</w:p>`;
-        })
-        .join('')
+      (image
+        ? imageParagraphXml(image, 'rId3', LANDSCAPE_TEXT_W_PT, LANDSCAPE_TEXT_H_PT - 52)
+        : landscapeAppendix.lines
+            .map((line) => {
+              const indent = line.match(/^\s*/)?.[0].length ?? 0;
+              const text = line.trim();
+              if (!text) return '';
+              const indentTwips = Math.min(6, Math.floor(indent / 2)) * 240;
+              const pPr = indentTwips > 0 ? `<w:pPr><w:ind w:left="${indentTwips}"/></w:pPr>` : '';
+              return `<w:p>${pPr}${renderRuns(text)}</w:p>`;
+            })
+            .join(''))
     : '';
 
   zip.file(
     'word/document.xml',
     `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
   <w:body>
     ${titleXml}
     ${blocksToXml(bodyBlocks)}
@@ -432,9 +524,14 @@ export async function exportDocx(md: string, title: string, fallbackName?: strin
   triggerDownload(blob, `${safeFilename(title, fallbackName ?? 'document')}.docx`);
 }
 
-interface MindMapLike {
-  title: string;
-  children?: MindMapLike[];
+/** 缩进文字版导图 —— 只在截不出图时用（降级路径） */
+function mindMapTextLines(nodes: MindMapNode[], depth = 0): string[] {
+  const out: string[] = [];
+  nodes.forEach((n) => {
+    out.push(`${'    '.repeat(depth)}- ${n.title}`);
+    if (n.children?.length) out.push(...mindMapTextLines(n.children, depth + 1));
+  });
+  return out;
 }
 
 /**
@@ -442,27 +539,42 @@ interface MindMapLike {
  *
  * 用户要求"思维导图单独给一页（横向）"。正文复用 `generateKnowledgeNote().md`
  * —— 与 txt / md / html / pdf 出口**同一份序列化**，避免两处内容漂移。
+ *
+ * 导图页是**从画布截图**（`renderMindMapImage`）：跟手写 DrawingML 形状相比，
+ * 截图不改绘制代码、还能把 KaTeX 公式一起拍进去。截图失败则退回缩进文字。
  */
 export async function exportKnowledgeDocx(
   md: string,
   title: string,
-  mindMap: MindMapLike[] | undefined,
+  mindMap: MindMapNode[] | undefined,
   fallbackTitle: string
 ): Promise<void> {
   const s = getCurrentStrings();
 
-  let appendix: { title: string; lines: string[] } | undefined;
+  let appendix: LandscapeAppendix | undefined;
   if (mindMap && mindMap.length > 0) {
-    const lines: string[] = [];
-    // 缩进表示层级：每层 4 空格，与 buildDocx 里的 indentTwips 换算对应
-    const walk = (nodes: MindMapLike[], depth: number) => {
-      nodes.forEach((n) => {
-        lines.push(`${'    '.repeat(depth)}- ${n.title}`);
-        if (n.children?.length) walk(n.children, depth + 1);
-      });
-    };
-    walk(mindMap, 0);
-    appendix = { title: `${title} · ${s.search.sections.mindMap}`, lines };
+    const lines = mindMapTextLines(mindMap);
+
+    // 布局 + 绘制 + 导出 PNG 全在 renderMindMapImage 里，与 PDF 横向导图页
+    // 共用同一份绘制源（paintMindMap）—— 两个出口的导图必须长得一样。
+    let image: AppendixImage | undefined;
+    try {
+      const shot = renderMindMapImage(mindMap);
+      if (shot.bytes.length > 0) {
+        image = {
+          bytes: shot.bytes,
+          ext: shot.mime === 'image/png' ? 'png' : 'jpeg',
+          widthPt: shot.widthPt,
+          heightPt: shot.heightPt,
+        };
+      }
+    } catch {
+      // canvas 不可用（无 document 等）→ 静默退回缩进文字。
+      // **导出不能因为"配图失败"而整份失败**，正文比附录图重要得多。
+      image = undefined;
+    }
+
+    appendix = { title: `${title} · ${s.search.sections.mindMap}`, lines, image };
   }
 
   const blob = await buildDocx(md, title, appendix);

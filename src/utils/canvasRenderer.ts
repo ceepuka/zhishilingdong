@@ -3,7 +3,7 @@
  *
  * ## 为什么 Canvas + 系统字体，不再嵌字体
  *
- * v1.8.0 路线是"PDF 内置 CJK 字体（STSong-Light + UniGB-UCS2-H）+ 自带 ToUnicode CMap，
+ * 上一版路线是"PDF 内置 CJK 字体（STSong-Light + UniGB-UCS2-H）+ 自带 ToUnicode CMap，
  * 不嵌 FontFile"。理论上零字节字体嵌入、阅读器自带字形即可显示中文。
  *
  * **实测这条路径在浏览器端 PDF Viewer 里行不通** —— Chrome / Edge 内置的
@@ -31,6 +31,7 @@ import { getCurrentStrings } from '../i18n/strings';
 import { getStoredLanguage } from '../hooks/useLanguageStore';
 import { examTypeLabel, difficultyLabel, conceptTypeLabel } from './knowledgeLabels';
 import { layoutMindMap, mindMapBounds, parseConnectionPath } from './mindMapLayout';
+import type { Line as MindMapLine, PositionedNode } from './mindMapLayout';
 import { readableLatexInText, readableLatexExpression } from './latexToText';
 
 // ---------------------------------------------------------------- 字体与几何
@@ -284,6 +285,11 @@ export interface CanvasCtx {
    * 测试桩可空实现（返回 dummy 字节 + 1x1 尺寸）。
    */
   toJpeg(): { bytes: Uint8Array; width: number; height: number };
+  /**
+   * 可选：导出为 **PNG** 字节（无损，文字更锐利）。
+   * 生产实现提供；测试桩可省略 —— 导图独立图片（Word 内嵌）优先用它。
+   */
+  toPng?(): { bytes: Uint8Array; width: number; height: number };
 }
 
 function makeFontSpec(sizePx: number, bold?: boolean): string {
@@ -520,33 +526,40 @@ function renderBlocks(w: PageWriter, blocks: Block[]) {
 
 // ---------------------------------------------------------------- 思维导图页
 
-function renderMindMapPage(w: PageWriter, nodes: MindMapNode[], title: string) {
-  const { positioned, lines } = layoutMindMap(nodes);
-  const bounds = mindMapBounds(positioned);
+/** 布局坐标 → canvas px 的仿射变换（两个出口共用同一套绘制）。 */
+interface MapTransform {
+  /** 布局坐标 x → canvas px */
+  tx: (x: number) => number;
+  /** 布局坐标 y → canvas px */
+  ty: (y: number) => number;
+  /** 长度 → canvas px */
+  ts: (v: number) => number;
+  /** 等比缩放系数（决定字号 / 圆角 / 线宽的视觉大小） */
+  scale: number;
+}
 
-  w.yPx = marginPx;
-  drawSegs(w, [{ text: title, bold: true, color: C.title, size: 15 }], px(MARGIN), w.yPx + px(15) * TEXT_TOP_GAP, 15);
-  w.yPx += 24;
-  w.ctx.drawLine(px(MARGIN), w.yPx, px(w.ctx.pageWidthPt - MARGIN), w.yPx, C.accent, 1.2);
-  w.yPx += 18;
-
-  // 思维导图可用区域 = 横向页的宽 - 两侧 margin；高 = 总高 - 已用 y
-  const availW = w.ctx.pageWidthPt - MARGIN * 2;
-  const availH = w.pageHeightPt - MARGIN - w.yPx / PT_TO_PX - 20;
-  const scale = Math.min(availW / bounds.width, availH / bounds.height, 1.35);
-  const offX = MARGIN + (availW - bounds.width * scale) / 2;
-  const offY = w.yPx / PT_TO_PX + (availH - bounds.height * scale) / 2;
-
-  const tx = (x: number) => px(offX + (x - bounds.minX) * scale);
-  const ty = (y: number) => px(offY + (y - bounds.minY) * scale);
-  const ts = (v: number) => v * scale * PT_TO_PX;
+/**
+ * 把已经算好布局的思维导图画到任意 ctx 上。
+ *
+ * **为什么要抽出来**：导图有两个出口 —— PDF 的横向页、Word 内嵌图片（截图）。
+ * 之前只有前者会画。现在两处共用这一份绘制，避免"PDF 里长这样、Word 里长那样"。
+ * 调用方只负责给变换（铺满页面 or 铺满图片），绘制细节这里一处写死。
+ */
+function paintMindMap(
+  ctx: CanvasCtx,
+  positioned: PositionedNode[],
+  connLines: MindMapLine[],
+  t: MapTransform,
+  record?: (text: string, xPx: number, topPx: number, sizePx: number) => void
+) {
+  const { tx, ty, ts, scale } = t;
 
   // 连线
-  for (const line of lines) {
+  for (const line of connLines) {
     const c = parseConnectionPath(line.path);
     if (!c) continue;
     const lv = Math.min(2, Math.floor(Math.abs(c.end[0] - c.start[0]) / 100));
-    w.ctx.drawBezier(
+    ctx.drawBezier(
       {
         x1: tx(c.start[0]), y1: ty(c.start[1]),
         cx1: tx(c.controls[0][0]), cy1: ty(c.controls[0][1]),
@@ -565,16 +578,16 @@ function renderMindMapPage(w: PageWriter, nodes: MindMapNode[], title: string) {
     const by = ty(n.descY - n.descH / 2);
     const bw = ts(n.descW);
     const bh = ts(n.descH);
-    w.ctx.fillRect(bx, by, bw, bh, [248, 250, 252], 3);
+    ctx.fillRect(bx, by, bw, bh, [248, 250, 252], 3);
     const sizePx = Math.max(4.5, 8 * scale * PT_TO_PX);
     // 节点标题/描述里也可能夹公式（`$i^2=-1$`）—— 位图页没有 KaTeX，
     // 不降级就会把 `$...$` 源码画进图里
-    const wrapped = wrapTextPx(w.ctx, readableLatexInText(n.description ?? ''), sizePx, Math.max(16 * PT_TO_PX, bw - 8));
+    const wrapped = wrapTextPx(ctx, readableLatexInText(n.description ?? ''), sizePx, Math.max(16 * PT_TO_PX, bw - 8));
     let yPx = by + 9 * scale * PT_TO_PX;
     for (const ln of wrapped) {
       if (yPx > by + bh - 2) break;
-      w.ctx.fillText(ln, bx + 4, yPx, { color: C.muted, fontSizePx: sizePx });
-      w.record(ln, bx + 4, yPx, sizePx);
+      ctx.fillText(ln, bx + 4, yPx, { color: C.muted, fontSizePx: sizePx });
+      record?.(ln, bx + 4, yPx, sizePx);
       yPx += sizePx * 1.35;
     }
   }
@@ -587,19 +600,98 @@ function renderMindMapPage(w: PageWriter, nodes: MindMapNode[], title: string) {
     const nw = ts(n.w);
     const nh = ts(n.h);
 
-    w.ctx.fillRect(nx, ny, nw, nh, LEVEL_FILL[lv], Math.min(5, 5 * scale));
+    ctx.fillRect(nx, ny, nw, nh, LEVEL_FILL[lv], Math.min(5, 5 * scale));
 
     const fontSizePx = Math.max(5, (n.level === 0 ? 12 : n.level === 1 ? 10 : 9) * Math.min(scale, 1.15) * PT_TO_PX);
-    const wrapped = wrapTextPx(w.ctx, readableLatexInText(n.title), fontSizePx, Math.max(16 * PT_TO_PX, nw - 8));
+    const wrapped = wrapTextPx(ctx, readableLatexInText(n.title), fontSizePx, Math.max(16 * PT_TO_PX, nw - 8));
     const lh = fontSizePx * 1.3;
     let textYPx = ny + nh / 2 - ((wrapped.length - 1) * lh) / 2 + fontSizePx * 0.5;
     for (const ln of wrapped) {
-      const tw = measureTextPx(w.ctx, ln, fontSizePx);
-      w.ctx.fillText(ln, nx + (nw - tw) / 2, textYPx, { color: LEVEL_TEXT[lv], fontSizePx, bold: true });
-      w.record(ln, nx + (nw - tw) / 2, textYPx, fontSizePx);
+      const tw = measureTextPx(ctx, ln, fontSizePx);
+      ctx.fillText(ln, nx + (nw - tw) / 2, textYPx, { color: LEVEL_TEXT[lv], fontSizePx, bold: true });
+      record?.(ln, nx + (nw - tw) / 2, textYPx, fontSizePx);
       textYPx += lh;
     }
   }
+}
+
+function renderMindMapPage(w: PageWriter, nodes: MindMapNode[], title: string) {
+  const { positioned, lines } = layoutMindMap(nodes);
+  const bounds = mindMapBounds(positioned);
+
+  w.yPx = marginPx;
+  drawSegs(w, [{ text: title, bold: true, color: C.title, size: 15 }], px(MARGIN), w.yPx + px(15) * TEXT_TOP_GAP, 15);
+  w.yPx += 24;
+  w.ctx.drawLine(px(MARGIN), w.yPx, px(w.ctx.pageWidthPt - MARGIN), w.yPx, C.accent, 1.2);
+  w.yPx += 18;
+
+  // 思维导图可用区域 = 横向页的宽 - 两侧 margin；高 = 总高 - 已用 y
+  const availW = w.ctx.pageWidthPt - MARGIN * 2;
+  const availH = w.pageHeightPt - MARGIN - w.yPx / PT_TO_PX - 20;
+  const scale = Math.min(availW / bounds.width, availH / bounds.height, 1.35);
+  const offX = MARGIN + (availW - bounds.width * scale) / 2;
+  const offY = w.yPx / PT_TO_PX + (availH - bounds.height * scale) / 2;
+
+  paintMindMap(
+    w.ctx,
+    positioned,
+    lines,
+    {
+      tx: (x) => px(offX + (x - bounds.minX) * scale),
+      ty: (y) => px(offY + (y - bounds.minY) * scale),
+      ts: (v) => v * scale * PT_TO_PX,
+      scale,
+    },
+    (text, xPx, topPx, sizePx) => w.record(text, xPx, topPx, sizePx)
+  );
+}
+
+/** 思维导图独立图片（Word 内嵌 / 任意需要"截图"的出口）。 */
+export interface MindMapImageOutput {
+  bytes: Uint8Array;
+  mime: 'image/png' | 'image/jpeg';
+  /** 图片按 pt 计的显示尺寸（= 内容逻辑尺寸，调用方按比例摆放） */
+  widthPt: number;
+  heightPt: number;
+}
+
+/**
+ * 思维导图 → 一张独立图片（"从画布截图"）。
+ *
+ * 与 PDF 导图页**共用 `paintMindMap`** 同一份绘制源，所以两个出口的导图长得一样。
+ * 图片按横向 A4 内容区自适应缩放（上限 1.35，避免节点巨大化），留 16pt 白边。
+ * 优先 PNG（文字锐利）；ctx 不支持时退回 JPEG。
+ */
+export function renderMindMapImage(
+  nodes: MindMapNode[],
+  createCtx: (widthPt: number, heightPt: number, landscape?: boolean) => CanvasCtx = createRealCanvasCtx
+): MindMapImageOutput {
+  const { positioned, lines } = layoutMindMap(nodes);
+  const bounds = mindMapBounds(positioned);
+
+  const PAD = 16;
+  const availW = PAGE_H - PAD * 2; // 横向：宽 = 纵向的高
+  const availH = PAGE_W - PAD * 2;
+  const scale = Math.min(availW / bounds.width, availH / bounds.height, 1.35);
+  const widthPt = bounds.width * scale + PAD * 2;
+  const heightPt = bounds.height * scale + PAD * 2;
+
+  const ctx = createCtx(widthPt, heightPt, widthPt >= heightPt);
+  ctx.fillRect(0, 0, px(widthPt), px(heightPt), [255, 255, 255]);
+
+  paintMindMap(ctx, positioned, lines, {
+    tx: (x) => px(PAD + (x - bounds.minX) * scale),
+    ty: (y) => px(PAD + (y - bounds.minY) * scale),
+    ts: (v) => v * scale * PT_TO_PX,
+    scale,
+  });
+
+  const png = ctx.toPng?.();
+  if (png && png.bytes.length > 0) {
+    return { bytes: png.bytes, mime: 'image/png', widthPt, heightPt };
+  }
+  const jpeg = ctx.toJpeg();
+  return { bytes: jpeg.bytes, mime: 'image/jpeg', widthPt, heightPt };
 }
 
 // ---------------------------------------------------------------- 内容装配
@@ -766,7 +858,7 @@ export interface CanvasPageOutput {
 /**
  * 把知识数据渲染成多张 canvas（每张一页）。
  *
- * 思维导图独占一张横向页，接在正文之后（与 v1.8.0 一致）。
+ * 思维导图独占一张横向页，接在正文之后（与正文出口一致）。
  * 没有导图时不产生空白横向页。
  */
 export function renderKnowledgePages(
@@ -1042,6 +1134,14 @@ export function createRealCanvasCtx(widthPt: number, heightPt: number, landscape
     },
     toJpeg() {
       const dataUrl = canvasEl.toDataURL('image/jpeg', 0.92);
+      return {
+        bytes: dataUrlToBytes(dataUrl),
+        width: canvasEl.width,
+        height: canvasEl.height,
+      };
+    },
+    toPng() {
+      const dataUrl = canvasEl.toDataURL('image/png');
       return {
         bytes: dataUrlToBytes(dataUrl),
         width: canvasEl.width,

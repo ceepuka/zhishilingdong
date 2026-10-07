@@ -1,12 +1,13 @@
 {
   "name": "ai-office-assistant",
   "private": true,
-  "version": "1.9.0",
+  "version": "1.7.3",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "release": "tsc --noEmit && vite build --config vite.standalone.config.ts && node scripts/build-standalone.js",
-    "release:publish": "node scripts/publish-release.mjs",
+    "check:version": "node scripts/check-version.js",
+    "release": "node scripts/check-version.js && tsc --noEmit && vite build --config vite.standalone.config.ts && node scripts/build-standalone.js",
+    "release:publish": "node scripts/check-version.js && node scripts/publish-release.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "manifest": "node scripts/build-manifest.js"
