@@ -974,24 +974,70 @@ export abstract class BaseAIProvider {
   }
 
   /**
-   * 续写提示词：把已生成内容回填，要求模型"接着写、不重复"。
-   * 对 JSON 同样适用（要求继续合法 JSON 并正确闭合）。
+   * 把当前 JSON 的进度说成人话，供续写提示词使用（"json 写到哪了、写得怎么样了"）。
+   *
+   * 为什么必须给模型这份进度：续写轮的用户消息**只有**这段提示词（没有会话历史），
+   * 模型看到的全部上下文就是"已生成片段的尾部"。那段尾部通常从某个字段中间开始，
+   * 模型既不知道**在写什么主题**，也不知道**整体结构还剩什么没写** ——
+   * 于是常见两种劣化：跑题改写（把前面已经写好的结论重写一遍），
+   * 或者漏掉末尾字段就匆忙闭合收尾。
+   *
+   * 补上"已完成 / 正在写 / 还差哪些（核心必出字段）"三件事，模型才能精确续接。
+   * 进度判定复用解析层的 `analyzeJSON`（权威解析），不另写一套括号/字段扫描。
+   */
+  protected describeJSONProgress(partial: string, requiredKeys?: string[]): string {
+    const analyzed = analyzeJSON(partial);
+    if (!analyzed) {
+      return '还没有出现 JSON 起始符（{ 或 [），请直接从当前片段继续。';
+    }
+    const done = analyzed.completedKeys;
+    const writing = analyzed.pendingKey;
+    const lines: string[] = [
+      `- 已写完的顶层字段：${done.length ? done.join('、') : '（暂无）'}`,
+      `- 正在写的顶层字段：${writing ?? '（无，刚刚闭合完一个片段）'}`,
+    ];
+    if (requiredKeys && requiredKeys.length > 0) {
+      const missing = requiredKeys.filter((k) => !done.includes(k) && k !== writing);
+      lines.push(
+        `- 还必须补上的字段：${missing.length ? missing.join('、') : '（核心字段已齐全，只需把正在写的内容写完并正确闭合）'}`
+      );
+    }
+    return lines.join('\n');
+  }
+
+  /**
+   * 续写提示词：把"这次要做什么" + "已生成内容" + "JSON 进度"一起回填，
+   * 要求模型"接着写、不重复"。对 JSON 同样适用（要求继续合法 JSON 并正确闭合）。
    *
    * 注意措辞：中断原因不止"达到长度上限"一种（还可能是链路中断后重试），
    * 所以这里**不写死**原因，只说"被中断"，避免给模型错误的上下文暗示。
+   *
+   * @param task 一句话说明这次生成的任务（用户输入的主题/词条/文本）。
+   *   续写轮没有会话历史，不告诉模型"在写什么"，它就只能靠片段瞎猜。
+   * @param requiredKeys 核心必出字段，用于告诉模型还差哪些没写。
    */
-  protected buildJSONContinuationPrompt(partial: string): string {
+  protected buildJSONContinuationPrompt(
+    partial: string,
+    task?: string,
+    requiredKeys?: string[]
+  ): string {
     const tail = partial.length > CONTINUATION_CONTEXT_LIMIT
       ? partial.slice(-CONTINUATION_CONTEXT_LIMIT)
       : partial;
-    return `你上一条回复在输出中途被中断，下面是已经输出的内容（可能不完整）：
+    const taskBlock = task ? `【本次任务】${task}\n\n` : '';
+    return `${taskBlock}你上一条回复在输出中途被中断。
+
+【当前 JSON 进度】
+${this.describeJSONProgress(partial, requiredKeys)}
+
+【已生成内容（可能不完整，末尾可能被截断）】
 <<<已生成内容开始
 ${tail}
 已生成内容结束>>>
 
 请【紧接着】上面的内容继续输出，把剩余部分补完，要求：
 1. 只输出"续写部分"本身，一个字都不要重复已经出现过的内容，也**不得**推翻、改写或重新解释前面已经写好的结论——前面写什么，你就顺着往下接，把它补完整；
-2. 不要添加任何解释、标题、过渡语、开场白或 markdown 代码块围栏，也**不得**插入与当前内容无关的新话题；
+2. 不要添加任何解释、标题、过渡语、开场白或 markdown 代码块围栏，也**不得**插入与当前内容无关的新话题；内容必须始终围绕【本次任务】；
 3. **必须**严格延续原有格式：前面是 JSON 就继续合法的 JSON 文本（注意正确闭合字符串、数组与花括号）；**不得**重新开始一个新的 JSON。`;
   }
 
@@ -1143,13 +1189,16 @@ ${tail}
    * 同一套中断归因），只是不要增量回调 —— 别再另写一套非流式续写，那会变成两套实现漂移。
    *
    * @returns data 为空表示"一个字都没解析出来"，由调用方按中断归因抛错
+   * @param taskLabel 一句话说明本次生成的任务（如"查词：photosynthesis"），
+   *   续写轮没有会话历史，必须显式告诉模型在写什么，否则它会跑题或漏字段。
    */
   protected async generateJSONWithContinuation<T>(
     prompt: string,
     systemPrompt: string | undefined,
     depth: AIDepth,
     requiredKeys: string[],
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    taskLabel?: string
   ): Promise<{
     data: T | null;
     truncated: boolean;
@@ -1171,7 +1220,7 @@ ${tail}
       },
       signal,
       buildJSONKeysCompleteChecker(requiredKeys),
-      (acc) => this.buildJSONContinuationPrompt(acc),
+      (acc) => this.buildJSONContinuationPrompt(acc, taskLabel, requiredKeys),
       MAX_GENERATION_ATTEMPTS
     );
 
@@ -2017,7 +2066,9 @@ ${categoryDirective}
               signal,
               // 续写判定 = 括号闭合 + 核心字段齐全（复用解析层权威判定）
               buildGenerateCompleteChecker(),
-              (acc) => self.buildJSONContinuationPrompt(acc),
+              // 续写轮带上"在写哪个主题"与"还差哪些核心字段"——
+              // 否则模型只看到一段截断的 JSON 尾部，容易跑题或漏掉末尾区块
+              (acc) => self.buildJSONContinuationPrompt(acc, `围绕「${topic}」生成知识内容`, REQUIRED_GENERATE_KEYS),
               MAX_GENERATION_ATTEMPTS,
               onReasoning
             );
@@ -2111,7 +2162,7 @@ ${categoryDirective}
               },
               signal,
               (acc) => hasCompleteJSONObject(acc),
-              (acc) => self.buildJSONContinuationPrompt(acc)
+              (acc) => self.buildJSONContinuationPrompt(acc, `围绕「${topic}」回答：${question}`, ['reply'])
             );
             const finalSnap = parser.finish();
             const finalReply = typeof finalSnap.data?.reply === 'string' && finalSnap.data.reply
@@ -2207,7 +2258,9 @@ ${word}
               prompt,
               systemPrompt,
               'medium',
-              ['word', 'definitions']
+              ['word', 'definitions'],
+              undefined,
+              `词典查词：${word}`
             );
             if (!gen.data) {
               throw new GenerationInterruptedError(
@@ -2314,7 +2367,9 @@ ${text}
               prompt,
               systemPrompt,
               'medium',
-              ['original', 'translation']
+              ['original', 'translation'],
+              undefined,
+              `翻译这段文本：${text}`
             );
             if (!gen.data) {
               throw new GenerationInterruptedError(
@@ -2427,7 +2482,7 @@ ${text}
               },
               signal,
               (acc) => hasCompleteJSONObject(acc),
-              (acc) => self.buildJSONContinuationPrompt(acc),
+              (acc) => self.buildJSONContinuationPrompt(acc, `生成 ${type} 文档，主题「${topic}」`, ['title', 'content']),
               MAX_GENERATION_ATTEMPTS
             );
             const finalSnap = parser.finish();

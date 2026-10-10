@@ -339,7 +339,12 @@ export const TranslateModule = forwardRef<ModuleRef, TranslateModuleProps>(({ on
             )}
 
             {!isLoading && !error && wordResult && (
-              <WordResultComponent result={wordResult} onLookup={handleKeywordLookup} />
+              <WordResultComponent
+                result={wordResult}
+                onLookup={handleKeywordLookup}
+                // 朗读要按**源语言**选语音：此前词条硬编码 en-US，查非英语词条会没声音
+                sourceLang={sourceLang !== 'auto' ? sourceLang : detectedSource ?? undefined}
+              />
             )}
             {!isLoading && !error && sentenceResult && (
               <SentenceResultComponent

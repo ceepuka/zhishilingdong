@@ -3,9 +3,11 @@
 ## 项目概览
 
 **项目名称**：知识灵动助手
-**版本**：v1.7.3（单文件 HTML 公开发布版；`1.8.0` 号段按路线图锁定给「移动端适配」）
+**版本**：v1.7.4（单文件 HTML 公开发布版；`1.8.0` 号段按路线图锁定给「移动端适配」）
 **状态**：开发期（产品未落地，无向后兼容负担）。v1.6.2 流式链路健壮性已落地；v1.7.0 完成「中断分类 → 全场景续写 → 分档提示」整体治理；m031 完成"收藏与搜索共用同一渲染实现"的内容一致性治理；m032 补齐概览（summary）与导出口径；m033~m040 完成历史"最后浏览时刻"单一基准与"浏览中"状态归属治理（含多标签页存储改造、关闭标签页兜底登记、旧构建误判根治，以及"离开那一刻的落盘不可靠"→ 进入基线 + 30s 心跳兜底）；m041 完成翻译对照 key 配对与词典/翻译关键词跳转；m042 完成查词/翻译接入统一续写链路（修 "Failed to parse JSON response"）与演示数据补齐；**m043~m047 完成导出层整体重做**（复制与导出同源、PDF 自研位图页+隐形文字层、导图改画布截图、Word/PDF 口径对齐、正文示意图可导出）与版本号规范（`docs/convention.md` §7 + `scripts/check-version.js` 发布门禁）；发布形态统一为单文件 HTML（tag `v1.7.3`）；6 种知识卡片为死代码待清理、响应式适配待做
-**最后更新**：2026-10-07
+> v1.7.4（2026-10-10，补丁版）已发布：思维导图布局回归修复 + 原文朗读修复 + 续写提示词补上下文
+> + **接入在线语音合成**（新「语音朗读」设置 tab）。详见 `docs/versions.md` v1.7.4 一节。
+**最后更新**：2026-10-10
 
 ## 工作总览
 
@@ -111,6 +113,26 @@ v1.7.3 复制与导出重构 + 公式/PDF 自研 + 口径对齐 + 示意图导�
 **详细技术说明**：`docs/versions.md` v1.7.3（含「附：复制与导出文件能力重构」）、`docs/design.md` §10.9、`docs/architecture.md` §16。
 
 **发布**：2026-10-07 发布 `v1.7.3` —— 附注 tag + GitHub Release（附件 `zhishilingdong-v1.7.3.html` 2,739,989 字节 / `usage-v1.7.3.txt`），匿名复验远端 sha256 与本地产物逐字节一致 → https://github.com/ceepuka/zhishilingdong/releases/tag/v1.7.3
+
+## v1.7.4 版本工作（2026-10-10，补丁版）
+
+**主线**：用户一次报三条，分属渲染 / 交互 / 生成三层；三条修完后用户实测反馈"还是有问题"，
+取证后确认为**他在测 10-07 的已发布产物**（那份构建源里导图算法仍是坏的），随后按用户要求追加在线语音合成。
+
+| 问题（用户原话摘要） | 根因 | 修复 |
+|---|---|---|
+| 思维导图渲染"被改动"，要求仅恢复渲染逻辑 | 导出重构抽布局到 `utils/mindMapLayout.ts` 时顺手改了 `measureNode` 非叶子分支（`subtreeH` 少了 `max(size.h,…)`、`topOffset` 由"子树带中点"变成 `size.h/2`） | 恢复重构前算法；保留文件拆分与 `originX/originY` 参数 |
+| 查词翻译"原文没有发音，译文发音正常" | 无匹配语音时 `speak()` 留空 `utterance.voice` 就发出去（Web Speech 不报错也不保证出声）；本机只有中文语音；且 `error` 状态从未渲染 | 退到可用语音并让 `lang` 跟随；暴露降级事实并渲染提示；`WordResult` 朗读语言跟随源语言 |
+| 续写"应给模型用户输入的主题及当前正在生成的部分（json 写哪了）" | 续写轮只回填内容尾部、没有任务上下文；`analyzeJSON` 不吐"正在写哪个字段" | `analyzeJSON` 加 `pendingKey`；新增 `describeJSONProgress()`；续写提示词带【本次任务】+【JSON 进度】；五处调用点透传主题 |
+| "发音准确更好，能接在线 TTS 比较好" | 本机语音取决于操作系统语音包，代码层治不好（本机仅 3 个 zh-CN） | 新「语音朗读」设置 tab：在线优先、失败退本机；端点由对话端点派生 `/audio/speech`，**复用同一份 Key**；预置智谱 glm-tts / 硅基 CosyVoice2 / OpenAI |
+
+**验收**：`tsc --noEmit` 干净；vitest **563 例 / 42 文件全绿**（较 v1.7.3 +34 例）；
+导图与 git 内旧实现逐节点 / 逐连线比对完全一致；真 Chromium 复验朗读降级提示、导图渲染
+（10 节点 / 9 连线 / 0 console 错误），以及在线朗读链路（命中 `/audio/speech`、本机语音 0 调用）。
+
+**详细技术说明**：`docs/versions.md` v1.7.4、`docs/history.md` 2026-10-10 条目、`docs/issues.md` 同日四条。
+
+**发布**：2026-10-10 发布 `v1.7.4`（PATCH，并入一项朗读增强，理由见 `docs/versions.md` 版本号说明）。
 
 ## v1.7.0 版本工作明细（已完成，保留备查）
 
@@ -244,6 +266,25 @@ v1.7.3 复制与导出重构 + 公式/PDF 自研 + 口径对齐 + 示意图导�
 | P2 | 关联知识推荐（翻译模块） | 4h | 无 |
 
 ## 近期工作记录
+
+### 2026-10-10（导图布局回归修复 + 朗读修复 + 续写上下文补齐 + 在线语音接入 → 发布 v1.7.4）
+
+用户一次报三条，分属渲染 / 交互 / 生成三层；三条修完后用户实测反馈"还是有问题"，
+取证确认**他在测 10-07 的旧产物**，再按用户要求追加在线语音合成。本轮收成 PATCH `v1.7.4`。
+
+| 时间 | 任务 | 状态 | 备注 |
+|------|------|------|------|
+| 10-10 | 诊断：导图渲染"被改了" | ✅ 完成 | `git diff 5bb1dd2 cf69235 -- src/components/knowledge/KnowledgeContentView.tsx`（380 行）定位到两个 hunk：布局抽到 `utils/mindMapLayout.ts` 时顺手改了 `measureNode` 非叶子分支 |
+| 10-10 | 恢复导图渲染逻辑 | ✅ 完成 | `subtreeH` 恢复 `Math.max(size.h, childrenTotalH)`；`topOffset`/`bottomOffset` 恢复 `subtreeH / 2`（节点中心落在整条子树带中央）；**保留**文件拆分与 `originX/originY` 参数 |
+| 10-10 | 导图恢复取证 | ✅ 完成 | A/B 脚本从 git 取旧版内联算法（`rootX`→`originX` 对齐接口），对 7 组夹具跑 `layoutMindMap` → 逐节点/逐连线 JSON 完全一致；反向跑 `cf69235` 版 → 不一致（4 层单链 B 节点 y 330→334），证明脚本能抓到该改动；真 Chromium 截图 10 节点 / 9 连线 / 0 console 错误 |
+| 10-10 | 诊断：原文朗读无声 | ✅ 完成 | 真 Chromium 页内劫持 `speechSynthesis.speak` 取证：原文 `voice: null` + ErrorEvent，译文 `voice: "Microsoft Huihui"` 正常；本机 `getVoices()` 只有 3 个 `zh-CN`（Chromium 走 OneCore，看不到注册表里的 ZIRA）；次要根因：`error` 状态从未渲染 → 点了零线索 |
+| 10-10 | 原文朗读降级修复 | ✅ 完成 | `useSpeechSynthesis` 重写：`matchVoice()` 四级匹配 → 退到引擎默认/首个可用，`utterance.lang` 跟随所选 voice；暴露 `SpeechFallback`；`WordResult` 朗读语言跟随源语言（此前硬编码 en-US）；UI 渲染降级/错误提示；新增 `speechLanguageLabel()` 反查 + `s.speech.voiceFallback` 文案 |
+| 10-10 | 诊断：续写缺上下文 | ✅ 完成 | 续写轮只回填内容尾部，没有任务上下文；`analyzeJSON` 只吐 `completedKeys`，不吐"正在写哪个字段" |
+| 10-10 | 续写上下文补齐 | ✅ 完成 | `partialJSON.scan()` 加 `pendingKey`（顶层帧追踪，单一来源）；新增 `describeJSONProgress()` 输出"已写完/正在写/还必须补"；`buildJSONContinuationPrompt` 改为【本次任务】+【当前 JSON 进度】+【已生成内容】；`generateJSONWithContinuation` 加 `taskLabel`，五处调用点透传主题 |
+| 10-10 | 第二轮：确认"测的是哪个构建" | ✅ 完成 | 用户反馈"还是有问题"→ 不回改代码，先从 `master` 取 15 天前 `f8661a1` 树做函数级比对（布局 9 函数全等价、`MindMap` 147 行逐字相同、提示词逐字相同）；两版算法量化：修复版根中心偏 1.5px、发布版偏 50px；`dev-1010.log` 证明 dev 一直带修复，`release/*.html` 停在 10-07 → **结论：发版即修好** |
+| 10-10 | 在线语音可行性取证 | ✅ 完成 | `probe-tts-cors2.cjs` 从 `file://` 直连各家 `/audio/speech`，**带对照组**：OpenAI / Anthropic 被 CORS 拦（`TypeError: Failed to fetch`），智谱 / 硅基放行（`res.type === 'cors'`） |
+| 10-10 | 实现在线语音合成 | ✅ 完成 | 新增 `services/onlineTts.ts`（预置 + 端点派生 + 分块 + 双形态回包解析）、`hooks/useSpeechConfigStore.ts`、`components/settings/SpeechSettings.tsx`、Header 第 4 个 tab；`useSpeechSynthesis` 改为在线优先调度器（失败退本机并说明原因） |
+| 10-10 | 验证 + 发版 | ✅ 完成 | `tsc --noEmit` 干净；vitest **563 例 / 42 文件全绿**（+24 例）；真 Chromium 复验在线朗读命中 `/audio/speech` 且本机语音 0 调用；versions/history/issues/todo/worklog/progress/README 全部同步；版本号六处 → 1.7.4，`npm run release` + tag + Release |
 
 ### 2026-10-06 ~ 10-07（v1.7.3：导出层整体重做 + 版本号规范）
 

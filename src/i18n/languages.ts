@@ -119,6 +119,19 @@ export function languageSpeech(code: string): string | undefined {
   return LANGUAGE_MAP[code]?.speech;
 }
 
+/**
+ * BCP-47 语音代码 → 母语名（朗读降级提示用）。
+ *
+ * 用于"本机没装 X 语言语音，改用 Y 代读"这类提示：提示里要给用户看的是
+ * 「英语」「中文」这种人话，而不是 `en-US` / `zh-CN` 这种代码。
+ * 反查不中时原样返回代码，宁可难看也不丢信息。
+ */
+export function speechLanguageLabel(bcp47: string): string {
+  const primary = (bcp47 || '').split(/[-_]/)[0].toLowerCase();
+  const meta = LANGUAGES.find((l) => l.speech?.toLowerCase().startsWith(primary));
+  return meta ? meta.native : bcp47;
+}
+
 /** 目标语言下拉选项（不含"自动检测"） */
 export const TARGET_LANGUAGE_OPTIONS = LANGUAGES;
 

@@ -6,6 +6,87 @@
 
 ---
 
+## 2026-10-10（导图布局回退修复 + 朗读修复 + 续写上下文补齐 + 在线语音接入 → 发布 v1.7.4）
+
+**任务类型**：Bug修复 / 重构优化 / 开发任务 / 发布任务
+
+**第1步 复现与定位（三条并行）**
+- 导图：`git log --follow` 锁定该文件只被 `5bb1dd2`（首版）与 `cf69235`（导出重构）动过；
+  `git diff 5bb1dd2 cf69235` 显示布局算法被抽到 `utils/mindMapLayout.ts`，
+  且 `measureNode` 非叶子分支被改（`subtreeH` / `topOffset` / `bottomOffset` 三处语义变了）。
+- 朗读：起 `npm run dev`，用 playwright 真 Chromium 打开 `#translate`，Mock 模式下走一遍翻译，
+  页内探针劫持 `speechSynthesis.speak` 记录实参 → 原文 `voice: null`、译文 `voice: Microsoft Huihui`；
+  再枚举 `getVoices()` 确认本机只有 3 个中文语音。
+- 续写：读 `callModelStreamWithContinuation` / `buildJSONContinuationPrompt` / `analyzeJSON`，
+  确认续写轮只回填尾部、且 `analyzeJSON` 不吐"正在写哪个字段"。
+
+**第2步 修复**
+- `src/utils/mindMapLayout.ts`：`measureNode` 非叶子分支恢复 `max(size.h, childrenTotalH)` +
+  `topOffset = bottomOffset = subtreeH / 2`。
+- `src/hooks/useSpeechSynthesis.ts`：抽出 `matchVoice()`；无匹配语音时退到「默认 → 第一个可用」，
+  `utterance.lang` 跟随所选 voice；新增 `SpeechFallback`；朗读前 voices 为空再取一次。
+- `src/modules/translate/SentenceResult.tsx` / `WordResult.tsx`：渲染降级提示与朗读错误；
+  `WordResult` 新增 `sourceLang` 并朗读跟随源语言；`index.tsx` 传入。
+- `src/services/streaming/partialJSON.ts`：`ScanState` / `analyzeJSON` 增加 `pendingKey`。
+- `src/services/baseAIProvider.ts`：新增 `describeJSONProgress()`；`buildJSONContinuationPrompt` 带
+  任务与进度；`generateJSONWithContinuation` 增加 `taskLabel`；五处调用点透传主题。
+- i18n：`speech.voiceFallback`；`i18n/languages.ts` 增加 `speechLanguageLabel()`。
+
+**第3步 验证**
+- `tsc --noEmit` 干净；`vitest run` **539 例 / 41 文件全过**（新增 10 例：
+  `useSpeechSynthesis.test.tsx` 5 + `continuation.test.ts` 4 + `partialJSON.test.ts` 1）。
+- 导图：写 `F:\WorkBuddyData\.workbuddy\tmp\compare-mindmap-layout.cjs`，用 esbuild 载入
+  git 里的旧实现与当前实现对跑 7 组夹具 → 逐节点 / 逐连线 JSON **完全一致**；对问题版跑会红。
+- 朗读：`probe-speak3.cjs` 真 Chromium 实测 → 原文走 `Microsoft Huihui` 且 `onstart` 触发，
+  页面出现「本机未安装「English」语音，已用「中文」代读」。
+- 导图视觉：`probe-mm-shot.cjs` 截图 + 几何取证（10 节点 / 9 连线 / 0 console 错误，父节点居中）。
+
+**第5步 第二轮：先确认"用户在测哪个构建"**
+- 用户反馈"导图还是有问题、发音也没解决"。先不回改代码，而是**做全量差异取证**：
+  从 `master` 取 15 天前的 `f8661a1`(09-19) 树，与当前做函数级比对 ——
+  布局 9 个函数体全等价、`MindMap` 组件 147 行**逐字相同**、导图提示词逐字相同，
+  唯一差异是主函数里 `GenerationNotice` 的位置（与导图无关）。
+- 两版算法对同一批数据量化：修复版根中心偏 **1.5px**（居中），已发布版（`4815b1e`）偏 **50px**；
+  真浏览器 A/B 也一致（dev 根中心 935 = 子分支中点 934；发布件 965 vs 933）。
+- 结论：**当前代码没问题，问题在"用户手上的产物是 10-07 的旧构建"**。`dev-1010.log` 显示
+  dev 从 11:41（改 `mindMapLayout.ts` 那一刻）起一直带修复；`release/知识灵动助手.html` 停在 10-07。
+
+**第6步 在线语音合成（用户新增要求："能接在线 TTS 比较好"）**
+- **先验真**：写 `probe-tts-cors2.cjs`，从 `file://` 页面直连各家 `/audio/speech`，
+  **带对照组** —— OpenAI / Anthropic 被拦（`TypeError: Failed to fetch`），
+  智谱 / 硅基放行（`res.type === 'cors'`）。据此确认发布形态下方案可行。
+- 新增 `src/services/onlineTts.ts`：厂商预置（智谱 `glm-tts` 7 音色 / 硅基 `CosyVoice2` 8 音色 / OpenAI）、
+  `deriveSpeechEndpoint()`、`splitForTts()`、`buildTtsTarget()`、`synthesizeSpeech()`（两种回包都吃）。
+- 新增 `src/hooks/useSpeechConfigStore.ts`（朗读偏好独立存储，模型/音色按厂商记）。
+- 重写 `src/hooks/useSpeechSynthesis.ts` 为在线优先调度器（`Audio` + `AbortController`，
+  失败退本机并说明原因；`SpeechFallback` → `SpeechNotice`）。
+- 新增 `src/components/settings/SpeechSettings.tsx` + `Header.tsx` 第 4 个 tab「语音朗读」。
+- i18n：`common.aiPanel.tabSpeech`、`settings.speechSettings.*`、`misc.speech.online*`。
+- 测试修正：`onlineTts.test.ts` 暴露出 `extractAudioPayload` 用"字符串长度 ≥128"当判据会**丢掉短 base64**，
+  改为"从已知音频字段取到的字符串一律认"。
+
+**第7步 验证（第二轮）**
+- `tsc --noEmit` 干净；`vitest run` **563 例 / 42 文件全过**（+24 例：`onlineTts` 19 + 朗读在线用例 5）。
+- `probe-online-tts.cjs` 真 Chromium：AI 挂 mock（active 指到未配置的 deepseek），
+  语音单指 zhipu 且 `status='valid'`，`page.route` 拦截 `/audio/speech` 回真 WAV →
+  命中 `https://open.bigmodel.cn/api/paas/v4/audio/speech`，body
+  `{"model":"glm-tts","input":"Good morning","voice":"tongtong","response_format":"wav"}`，
+  **本机语音 0 次调用**、`Audio.play` 播放 blob；设置面板「语音朗读」tab 渲染完整（含派生端点）。
+
+**第8步 文档同步 + 发版**
+- `docs/versions.md`（`未发布` 节改写为 `## v1.7.4` 里程碑 + 新增第四节在线语音）、
+  `docs/history.md`、`docs/issues.md`（第四条已解决 + 两条经验教训：*先确认用户测的是哪个构建* /
+  *环境探针必须带对照组*）、`docs/todo.md`（`未发布` 块 → `v1.7.4（已发布）` + 版本表补行）、
+  `docs/worklog.md`（本条）、`docs/progress.md`、`README.md` 版本表。
+- 版本号六处 → `1.7.4`（`package.json` / `package-lock.json` ×2 / `versions.md` / `README.md` / `todo.md`）；
+  `npm run release` → `release/知识灵动助手.html` + `使用说明.txt`；commit + push；`git tag -a v1.7.4`；Release。
+
+**备注**：`v1.7.4` 是**补丁版**。本版含一项能力新增（在线语音），单看是 MINOR 语义，
+但 `1.8.0` 已按路线图锁给「移动端适配」，**用户拍板（2026-10-10）一并收进 PATCH** ——
+理由是本版起因"朗读没声音"与在线语音是同一个"本机语音不可靠"根因。
+
+---
+
 ## 2026-10-06 ~ 10-07（复制与导出重构 + 公式/PDF 修复 + 导图改截图 + Word/PDF 口径对齐与示意图导出 → v1.7.3）
 
 **任务类型**：需求分析 / 开发任务 / 重构优化 / Bug修复 / 文档维护

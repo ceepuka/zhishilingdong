@@ -13,6 +13,7 @@ import { exportDocx } from '../../utils/exportDocx';
 import { downloadText } from '../../utils/clipboard';
 import { useFavorites } from '../../hooks/useFavorites';
 import { useSpeechSynthesis } from '../../hooks/useSpeechSynthesis';
+import { languageSpeech } from '../../i18n/languages';
 import { useStrings } from '../../hooks/useStrings';
 import { useWanxImage } from '../../hooks/useWanxImage';
 
@@ -20,6 +21,9 @@ interface WordResultProps {
   result: WordResultType;
   /** 点击关键词（短语/多词查询时 AI 给出的最多 10 个词）再次查词 */
   onLookup?: (term: string) => void;
+  /** 源语言 code（朗读用）。缺省按英语处理 —— 此前硬编码 en-US，
+   *  查中文/其它语种词条时会拿英语语音去读，或干脆没声音。 */
+  sourceLang?: string;
 }
 
 /**
@@ -43,19 +47,19 @@ function WordImage({ result }: { result: WordResultType }) {
   return null;
 }
 
-export function WordResult({ result, onLookup }: WordResultProps) {
+export function WordResult({ result, onLookup, sourceLang }: WordResultProps) {
   const s = useStrings();
   const { favorites, isFavorite, addFavorite, removeFavorite } = useFavorites();
   const fav = isFavorite(result, 'dictionary');
   const [audioPlayed, setAudioPlayed] = useState(false);
-  const { speak, isSpeaking } = useSpeechSynthesis();
+  const { speak, isSpeaking, notice: speechNotice, error: speechError } = useSpeechSynthesis();
   const { feedback, notify } = useActionFeedback();
   /** 复制与导出共用同一份序列化结果 —— 出口口径必须一致 */
   const plainText = useMemo(() => serializeWordResult(result), [result]);
 
   const handlePlayAudio = () => {
     setAudioPlayed(true);
-    speak(result.word, { lang: 'en-US', rate: 0.8 });
+    speak(result.word, { lang: languageSpeech(sourceLang || 'en') || 'en-US', rate: 0.8 });
     setTimeout(() => setAudioPlayed(false), 3000);
   };
 
@@ -128,6 +132,13 @@ export function WordResult({ result, onLookup }: WordResultProps) {
           </Button>
         </div>
       </div>
+      {/* 朗读提示必须说出来：这两类情况引擎都不报错，用户侧只看到
+          "点了没反应"或"发音不对" —— 在线失败退本机 / 本机缺该语言语音 */}
+      {(speechNotice || speechError) && (
+        <p className="mb-4 text-xs text-amber-600 dark:text-amber-400">
+          {speechError || speechNotice!.message}
+        </p>
+      )}
       <div className="grid md:grid-cols-2 gap-6">
         <div className="text-center">
           <h2 className="text-3xl font-bold text-slate-800">{result.word}</h2>

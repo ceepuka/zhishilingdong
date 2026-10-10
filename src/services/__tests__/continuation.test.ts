@@ -512,3 +512,95 @@ describe('generateJSONWithContinuation — 查词/翻译的续写补全', () => 
   });
 });
 
+/**
+ * 续写提示词的上下文完备性。
+ *
+ * 缺陷背景：续写轮的用户消息**只有**这段提示词 —— 没有会话历史、没有原始 prompt。
+ * 旧实现只回填"已生成内容的尾部"，那段尾部通常从某个字段中间开始，于是模型
+ * 既不知道在写什么主题，也不知道整体结构还差什么：表现为跑题改写或漏掉末尾区块。
+ * 现在必须同时带上：【本次任务】+【JSON 进度：已完成 / 正在写 / 还差哪些】+ 尾部片段。
+ */
+describe('buildJSONContinuationPrompt — 续写要带上主题与 JSON 进度', () => {
+  type StreamResult = { content: string; model: string; latencyMs: number; streamed: boolean; truncated: boolean };
+
+  function makeProvider(rounds: Array<StreamResult | Error>) {
+    let call = 0;
+    const prompts: string[] = [];
+    const provider = new (class extends BaseAIProvider {
+      protected getProviderId(): string { return 'test'; }
+      protected async callModelStream(
+        prompt: string,
+        _systemPrompt: string | undefined,
+        _depth: any,
+        onDelta: (chunk: string) => void,
+        _signal?: AbortSignal,
+        _onReasoning?: (chunk: string) => void
+      ): Promise<StreamResult> {
+        prompts.push(prompt);
+        const item = rounds[Math.min(call, rounds.length - 1)];
+        call++;
+        if (item instanceof Error) throw item;
+        if (item.content) onDelta(item.content);
+        return item;
+      }
+    })();
+    return { provider, prompts };
+  }
+
+  const ok = (content: string): StreamResult => ({ content, model: 'm', latencyMs: 1, streamed: true, truncated: false });
+
+  it('提示词同时包含：任务、已完成字段、正在写的字段、还差哪些字段、已生成片段', () => {
+    const { provider } = makeProvider([ok('{}')]);
+    const partial = '{"word":"photosynthesis","definitions":[{"pos":"n","meaning":"光合';
+    const p = (provider as any).buildJSONContinuationPrompt(
+      partial,
+      '词典查词：photosynthesis',
+      ['word', 'definitions']
+    ) as string;
+
+    expect(p).toContain('词典查词：photosynthesis');       // 主题
+    expect(p).toContain('已写完的顶层字段：word');           // 进度：已完成
+    expect(p).toContain('正在写的顶层字段：definitions');    // 进度：正在写
+    expect(p).toContain(partial);                          // 已生成片段（尾部）
+    // 核心字段只差 definitions（正在写，不算"还没出现"）
+    expect(p).toContain('还必须补上的字段');
+  });
+
+  it('核心字段都写完、只差闭合时如实说明，不谎报缺字段', () => {
+    const { provider } = makeProvider([ok('{}')]);
+    const p = (provider as any).buildJSONContinuationPrompt(
+      '{"word":"hello","definitions":[]',
+      '词典查词：hello',
+      ['word', 'definitions']
+    ) as string;
+    expect(p).toContain('核心字段已齐全');
+  });
+
+  it('还没有 JSON 起始符时给出人话提示，而不是空白进度', () => {
+    const { provider } = makeProvider([ok('{}')]);
+    const p = (provider as any).buildJSONContinuationPrompt('好的，我先想想……', '词典查词：hello') as string;
+    expect(p).toContain('还没有出现 JSON 起始符');
+    expect(p).toContain('好的，我先想想……');
+  });
+
+  it('端到端：续写轮实际发出的 prompt 带着任务主题与进度（不是只回填尾部）', async () => {
+    const { provider, prompts } = makeProvider([
+      ok('{"word":"photosynthesis","definitions":[{"pos":"n"'), // 首轮未闭合
+      ok(''),                                                   // 续写轮空内容 → 收手
+    ]);
+    const r = await (provider as any).generateJSONWithContinuation(
+      '原始查词 prompt',
+      undefined,
+      'medium',
+      ['word', 'definitions'],
+      undefined,
+      '词典查词：photosynthesis'
+    );
+    expect(r.attempts).toBe(2);
+    // 第二轮（续写轮）必须带上主题与进度，而不是只有"续写:"前缀
+    expect(prompts[1]).toContain('词典查词：photosynthesis');
+    expect(prompts[1]).toContain('正在写的顶层字段：definitions');
+    expect(prompts[1]).toContain('已写完的顶层字段：word');
+  });
+});
+

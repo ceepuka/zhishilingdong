@@ -115,6 +115,21 @@ export const miscEn = {
     languageUnsupported: 'Language not supported',
     voiceUnavailable: 'Voice unavailable',
     error: 'Speech error: {msg}',
+    /**
+     * 降级提示：请求的语言在本机没有语音包时的说明。
+     * 此前这种情况会**静默不出声**（引擎拿不到 voice 就什么都不做），
+     * 用户只看到"点了没反应"。
+     */
+    voiceFallback: 'No "{lang}" voice is installed on this device — reading with "{used}" instead',
+    /**
+     * 在线合成失败、已自动退回本机语音。
+     * 必须说清楚"为什么听到的是本机音" —— 否则用户会以为在线根本没生效。
+     */
+    onlineFailed: 'Online TTS failed ({provider}): {detail}. Falling back to the device voice.',
+    onlineFailUnauthorized: 'the API key is invalid or has no TTS access',
+    onlineFailNoEndpoint: 'this vendor has no speech endpoint',
+    onlineFailNetwork: 'the request failed (network or blocked by CORS)',
+    onlineFailPlayback: 'the response was not playable audio',
   },
 
   exportNote: {
@@ -260,6 +275,14 @@ export const miscZh: MiscStrings = {
     languageUnsupported: '不支持该语言',
     voiceUnavailable: '语音不可用',
     error: '语音错误: {msg}',
+    /** 本机缺该语言的语音包时的降级说明（否则表现为"点了没反应"） */
+    voiceFallback: '本机未安装「{lang}」语音，已用「{used}」代读',
+    /** 在线合成失败、已自动退回本机语音（要说清楚，否则用户以为在线没生效） */
+    onlineFailed: '在线语音合成失败（{provider}）：{detail}；已改用本机语音',
+    onlineFailUnauthorized: '密钥无效或未开通语音服务',
+    onlineFailNoEndpoint: '该服务商没有语音合成端点',
+    onlineFailNetwork: '网络请求失败（可能被跨域策略拦截）',
+    onlineFailPlayback: '返回内容不是可播放的音频',
   },
 
   exportNote: {

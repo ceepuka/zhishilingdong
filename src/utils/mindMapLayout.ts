@@ -183,12 +183,15 @@ function measureNode(
       -NODE_SPACING
     );
 
-    subtreeH = childrenTotalH;
+    // 子树高度必须**至少**等于节点自身高度：子节点少而节点本身高时，
+    // 只按"子节点总高"算会让兄弟节点的子树带互相重叠，父节点也被顶到带外。
+    // 节点中心落在整条子树带的正中央（topOffset = subtreeH / 2），
+    // 这样 `layoutMeasuredNode` 里 `startY + child.topOffset` 才是"该子树带的中点"。
+    subtreeH = Math.max(size.h, childrenTotalH);
     subtreeW = size.w + gap + Math.max(...measuredChildren.map((c) => c.subtreeW));
 
-    topOffset = size.h / 2;
-    const accBottom = childrenTotalH + size.h / 2;
-    bottomOffset = accBottom - size.h / 2;
+    topOffset = subtreeH / 2;
+    bottomOffset = subtreeH / 2;
   }
 
   return {

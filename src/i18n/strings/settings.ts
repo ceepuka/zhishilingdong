@@ -66,6 +66,26 @@ export const settingsEn = {
     errorModels: 'Please enter at least one model ID',
   },
 
+  speechSettings: {
+    engine: 'Reading engine',
+    engineOnline: 'Online TTS (accurate pronunciation)',
+    engineBrowser: 'System voice (offline)',
+    engineHint: 'Online TTS synthesizes the text with your configured vendor, so every language is pronounced correctly. If a request fails, it automatically falls back to the system voice.',
+    provider: 'TTS vendor',
+    providerFollow: 'Follow the active chat vendor',
+    model: 'TTS model',
+    voice: 'Voice',
+    modelPlaceholder: 'Enter the TTS model ID',
+    voicePlaceholder: 'Enter the voice ID',
+    voiceCustomOption: 'Custom voice ID...',
+    noPresetModel: 'This vendor has no built-in TTS model. Enter one manually, or switch to Zhipu / SiliconFlow.',
+    providerNotConfigured: 'This vendor has no valid API key yet — configure it under "{tab}" first, otherwise reading falls back to the system voice.',
+    currentProvider: 'Currently using: {name}',
+    endpointLabel: 'Endpoint:',
+    endpointNote: 'Reuses the chat API key. The endpoint is derived from the chat endpoint by replacing /chat/completions with /audio/speech.',
+    systemNote: 'System voices come from OS language packs. If the language you need is not installed, another voice reads it instead.',
+  },
+
   templates: {
     openai: { name: 'OpenAI', label: 'OpenAI', hint: 'Direct connection. Requires a working proxy in some regions, otherwise requests may time out' },
     openrouter: { name: 'OpenRouter', label: 'OpenRouter', hint: 'One key for nearly all models (Anthropic / Google / Meta and more); supports Alipay top-up' },
@@ -142,6 +162,26 @@ export const settingsZh: SettingsStrings = {
     errorBaseUrl: '请输入 API Base URL',
     errorKey: '请输入 API 密钥',
     errorModels: '请至少输入一个模型 ID',
+  },
+
+  speechSettings: {
+    engine: '朗读引擎',
+    engineOnline: '在线语音合成（发音更准）',
+    engineBrowser: '系统语音（离线）',
+    engineHint: '在线合成会把文本交给已配置的厂商发声，任何语种都能读准。请求失败时会自动退回系统语音。',
+    provider: '语音服务商',
+    providerFollow: '跟随当前对话厂商',
+    model: '语音模型',
+    voice: '音色',
+    modelPlaceholder: '输入语音模型 ID',
+    voicePlaceholder: '输入音色 ID',
+    voiceCustomOption: '自定义音色 ID...',
+    noPresetModel: '该厂商没有内置语音模型，请手动填写；或改用智谱 / 硅基流动。',
+    providerNotConfigured: '该厂商还没有可用的密钥 —— 请先在「{tab}」里配置，否则朗读会退回系统语音。',
+    currentProvider: '当前使用：{name}',
+    endpointLabel: '端点：',
+    endpointNote: '复用对话用的密钥；端点由对话端点把 /chat/completions 换成 /audio/speech 得到。',
+    systemNote: '系统语音来自操作系统的语音包。没装你要的那种语言时，会拿别的语音代读。',
   },
 
   templates: {

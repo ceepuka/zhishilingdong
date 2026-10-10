@@ -45,7 +45,7 @@ export function SentenceResult({ result, onLookup, onSearchTopic }: SentenceResu
   const fav = isFavorite(result, 'translation');
   const { feedback, notify } = useActionFeedback();
   const [speaking, setSpeaking] = useState<'original' | 'translation' | null>(null);
-  const { speak, isSpeaking } = useSpeechSynthesis();
+  const { speak, isSpeaking, notice: speechNotice, error: speechError } = useSpeechSynthesis();
 
   // 选词映射：pinned 为点击锁定，hovered 为悬停；hovered 优先。
   // 状态按 **key**（AI 填的对照编号）索引 —— 不是数组下标，也不是字符位置。
@@ -212,6 +212,14 @@ export function SentenceResult({ result, onLookup, onSearchTopic }: SentenceResu
         <p className="mb-3 text-xs text-slate-400 dark:text-zinc-500">
           {s.translate.alignmentHint}
         </p>      )}
+
+      {/* 朗读提示必须说出来：这两类情况引擎都不报错，用户侧只看到
+          "点了没反应"或"发音不对" —— 在线失败退本机 / 本机缺该语言语音 */}
+      {(speechNotice || speechError) && (
+        <p className="mb-3 text-xs text-amber-600 dark:text-amber-400">
+          {speechError || speechNotice!.message}
+        </p>
+      )}
 
       <div className="grid md:grid-cols-2 gap-6">
         <div>

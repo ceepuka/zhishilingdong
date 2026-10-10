@@ -1,5 +1,121 @@
 # 版本里程碑
 
+## v1.7.4 (2026-10-10) —— 导图布局回退修复 + 在线语音朗读 + 续写上下文补齐
+
+> **版本号说明**：本版是 **v1.7.3 之后的一个补丁版本**（PATCH）。它包含三条**修复**
+> 与一项**朗读能力的增强**（接入在线 TTS）。按 §7，单看在线 TTS 属能力新增（MINOR 语义），
+> 而 `1.8.0` 已按路线图锁定给「移动端适配」；**用户拍板（2026-10-10）：一并收进 PATCH `v1.7.4`**。
+> 理由 —— 本版起因是"原文朗读没声音"这条缺陷，接入在线 TTS 是同一个
+> **「本机语音不可靠」根因**的收尾（本机语音取决于操作系统装了哪些语音包，代码层面治不好）。
+> `1.8.0` 仍锁给「移动端适配」。
+
+### 一、思维导图布局算法在导出重构时被顺手改坏（回归）
+
+- 现象（用户报）："思维导图渲染算法逻辑在封装时（处理导出文件功能）被其他模型意外改动了，
+  请仅恢复渲染逻辑（之前很完美）"。
+- 取证：`git diff 5bb1dd2 cf69235 -- src/components/knowledge/KnowledgeContentView.tsx`。
+  导出重构把组件内联的布局算法抽成 `utils/mindMapLayout.ts`（这步本身是对的 —— 页面与导出
+  必须共用同一份布局），但**顺手改了 `measureNode` 的非叶子分支**：
+
+  | | 重构前（正确） | 重构后（回归） |
+  |---|---|---|
+  | `subtreeH` | `max(size.h, childrenTotalH)` | `childrenTotalH` |
+  | `topOffset` | `subtreeH / 2` | `size.h / 2` |
+  | `bottomOffset` | `subtreeH / 2` | `childrenTotalH` |
+
+  `layoutMeasuredNode` 用 `startY + child.topOffset` 定位子节点，`topOffset` 的语义必须是
+  **该子树带的中点**。改成 `size.h / 2` 后节点被顶到带上沿：子节点少而节点自身高的分支
+  （单链 / 单子分支）会整体上移，与兄弟节点的子树带错位（重叠或留空不均）。
+- 修复：非叶子分支恢复成重构前的算法。**保留**文件拆分与 `originX/originY` 参数
+  （导出需要控制原点，默认 450/350 与旧硬编码一致）。
+- 验证：用 esbuild 从 git 取出旧实现，与当前实现跑同一批夹具（7 组：单根 4 子 / 描述盒 /
+  单子高节点 / 4 层单链 / 多根 / 奇数子节点 / 希腊字母宽估），**逐节点、逐连线 JSON 完全一致**；
+  对出问题那版跑同样对比会红（4 层单链夹具里 B 从 y=330 偏到 334）。
+
+### 二、原文朗读没有声音（本机缺该语言语音时静默失败）
+
+- 现象（用户报）："查词翻译模块原文没有发音，译文发音正常"。
+- 取证（真 Chromium + 页内探针）：本机 `speechSynthesis.getVoices()` 只有 3 个中文语音
+  （Huihui / Kangkang / Yaoyao，Chromium 走 OneCore，注册表里那个 en-US Zira 它看不见），
+  **没有英语语音**。英文原文请求 `en-US` 时 `getVoiceForLang` 返回 null → 旧实现
+  **把 `utterance.voice` 留空**就发出去 → 引擎静默不播。中文译文有匹配语音，所以正常。
+  更糟的是 `useSpeechSynthesis` 的 `error` 状态**从未在任何 UI 里渲染** —— 失败连提示都没有。
+- 修复：
+  - `speak()` 在无匹配语音时**显式退到**「引擎默认语音 → 第一个可用语音」，并把
+    `utterance.lang` 对齐到该语音的 lang（多数引擎拿不到 voice 就什么都不播）；
+  - 新增 `SpeechFallback`（`requested` / `usedLang` / `usedVoice`）暴露给 UI，
+    `SentenceResult` / `WordResult` 渲染「本机未安装「English」语音，已用「中文」代读」，
+    失败时渲染错误文案（不再静默）；
+  - `WordResult` 的朗读语言从硬编码 `en-US` 改为跟随源语言（查非英语词条此前也读不出）；
+  - 朗读前若 `voices` 为空会**再取一次**（`onvoiceschanged` 迟到导致的静默失败）。
+- 验证：真 Chromium 实测 —— 原文现在用 `Microsoft Huihui` 朗读（`onstart` 触发），
+  页面出现降级提示；新增 `src/hooks/__tests__/useSpeechSynthesis.test.tsx` 锁死
+  「有匹配 / 无匹配 → 兜底并提示 / 一个语音都没有 / 空文本 / stop 清理」
+  （第四节又扩充了"在线优先 / 在线失败降级"用例，该文件现共 10 例）。
+
+### 三、续写提示词缺"主题"与"JSON 进度"
+
+- 现象（用户报）："内容续写逻辑应优化，续写时应给模型用户输入的主题及当前正在生成的部分
+  （json 写哪了，写得怎么样了）"。
+- 根因：续写轮的用户消息**只有** `buildJSONContinuationPrompt(partial)` 的产物 ——
+  没有会话历史、没有原始 prompt，回填的又只是**内容尾部**（`CONTINUATION_CONTEXT_LIMIT` 截断）。
+  那段尾部通常从某个字段中间开始，模型既不知道在写什么主题，也不知道结构上还差什么字段。
+- 修复：
+  - `partialJSON`：`scan()` 的 `ScanState` 与 `analyzeJSON()` 增加 `pendingKey`
+    （**正在写**的顶层字段名）；
+  - 新增 `describeJSONProgress(partial, requiredKeys)`：给出「已写完 / 正在写 / 还必须补上」三行；
+  - `buildJSONContinuationPrompt(partial, task?, requiredKeys?)` 输出
+    【本次任务】+【当前 JSON 进度】+【已生成内容】+ 续写要求，并要求"内容必须始终围绕【本次任务】"；
+  - `generateJSONWithContinuation` 增加 `taskLabel`；四处调用点分别带上主题
+    （知识生成 `围绕「topic」生成知识内容` / 追问 `围绕「topic」回答：question` /
+    文档 `生成 doc 文档，主题「topic」` / 查词 `词典查词：word` / 翻译 `翻译这段文本：text`）。
+- 验证：`continuation.test.ts` +4 例（提示词含主题与三行进度、核心字段齐全时不谎报缺字段、
+  无 JSON 时给人话、端到端断言续写轮实际发出的 prompt 带主题与进度）；
+  `partialJSON.test.ts` +1 例锁 `pendingKey` 的四种状态。
+
+### 四、接入在线语音合成（"发音准"的正解）
+
+- 背景：用户反馈"发音准确更好，能接在线 TTS 比较好"。第二节只治好了
+  **"点了没反应"**，治不了**"读不准"** —— 本机语音完全取决于操作系统装了哪些语音包，
+  代码层面拿不到英文语音就是拿不到（本机实测只有 3 个 zh-CN）。
+- 先验真（不是先写代码）：用真 Chromium 从 `file://` 页面直连各家 `/audio/speech`，
+  **带对照组**证明探针真能测出拦截：
+
+  | 端点 | 结果 |
+  |---|---|
+  | OpenAI `api.openai.com/v1/audio/speech`（对照） | ❌ `TypeError: Failed to fetch`（CORS 拦） |
+  | Anthropic（对照） | ❌ `TypeError: Failed to fetch` |
+  | 智谱 `open.bigmodel.cn/api/paas/v4/audio/speech` | ✅ `res.type === 'cors'`，HTTP 401（仅 key 无效） |
+  | 硅基 `api.siliconflow.cn/v1/audio/speech` | ✅ 同上 |
+
+  结论：**发布形态（单文件 HTML 双击打开 = `file://`）下智谱/硅基的在线朗读可用**；
+  OpenAI 官方端点不行（除非用户自配代理 baseUrl）。
+- 设计（关键：不新增一套厂商配置）：
+  - 各家 TTS 端点都是「对话端点把 `/chat/completions` 换成 `/audio/speech`」，
+    故 `onlineTts.deriveSpeechEndpoint()` 直接从用户**已配好的厂商 baseUrl** 派生 ——
+    **一份 Key，对话与朗读共用**；
+  - 新增 `services/onlineTts.ts`：厂商预置（智谱 `glm-tts` 7 音色 / 硅基
+    `FunAudioLLM/CosyVoice2-0.5B` 8 音色 / OpenAI 预留）、文本分块
+    （智谱 `input` 上限 1024，超长直接 400，按句读边界切并保证不丢字）、
+    `synthesizeSpeech()`（**两种回包形态都吃**：`audio/*` 二进制，或 JSON 里的 base64/URL）；
+  - 新增 `hooks/useSpeechConfigStore.ts`：朗读偏好独立于对话配置存储
+    （用户可能用 DeepSeek 对话、要智谱发声），模型/音色**按厂商分别记**；
+  - `useSpeechSynthesis` 变成**在线优先调度器**：在线可用 → `Audio` 播放（`AbortController`
+    可中断、逐块播放）；**在线失败自动退本机**并如实提示失败原因（`SpeechNotice`）；
+  - 设置面板新增第 4 个 tab「语音朗读」（引擎 / 服务商 / 模型 / 音色 / 派生端点预览）。
+- 验证：真 Chromium（`page.route` 拦截 `/audio/speech` 回一段真 WAV）——
+  点"朗读原文"命中 `https://open.bigmodel.cn/api/paas/v4/audio/speech`，
+  body `{"model":"glm-tts","input":"Good morning","voice":"tongtong","response_format":"wav"}`，
+  **本机语音 0 次调用**、`Audio.play` 播放了 blob、无失败提示；
+  设置面板「语音朗读」tab 渲染完整（含派生端点）。
+
+### 验证与产物
+
+- `tsc --noEmit` 干净；`vitest run` **563 例全过（42 文件）**（较 v1.7.3 的 529/40，+34 例）。
+- 真 Chromium：搜索页导图渲染 10 节点 / 9 连线、0 console 错误；父节点几何居中于其子树带。
+- 发布：`package.json` / `package-lock.json` / `docs/versions.md` / `README.md` / `docs/todo.md`
+  六处一致 `1.7.4`（`node scripts/check-version.js` 通过）。
+
 ## v1.7.3 (2026-10-06 ~ 10-07) —— 公式可读 + PDF 真正能看 + 正文示意图可导出
 
 > **版本号说明**：本版是 **v1.7.2 之后的一个补丁版本**（PATCH）。本轮工作原本被拆成

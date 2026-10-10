@@ -1,5 +1,80 @@
 # 演变历史
 
+## 2026-10-10（导图布局回退修复 + 朗读修复 + 续写上下文补齐 + 接入在线语音 → 发布 v1.7.4）
+
+### 事件
+
+用户一次报三条，分属三个互不相干的层：渲染（导图布局）、交互（朗读）、生成（续写提示词）。
+三条都先复现、再定位、再修，不靠猜。
+
+- 第一条 "**思维导图渲染算法逻辑在封装时（处理导出文件功能）被其他模型意外改动了，
+  请仅恢复渲染逻辑（之前很完美）**" —— 定位到导出重构（`cf69235`）把布局算法从
+  `KnowledgeContentView.tsx` 抽到 `utils/mindMapLayout.ts` 时**顺手改了 `measureNode`
+  的非叶子分支**。
+- 第二条 "**查词翻译模块原文没有发音，译文发音正常**" —— 复现后发现是**环境 + 静默失败**叠加：
+  本机只有中文语音，英文原文拿不到 voice，旧实现留空就发出去，引擎不播；而 error 状态从没渲染。
+- 第三条 "**内容续写逻辑应优化，续写时应给模型用户输入的主题及当前正在生成的部分
+  （json写哪了，写得怎么样了）**" —— 续写轮只回填了内容尾部，模型不知道主题、也不知道还差哪些字段。
+- 三条修完之后，用户回来实测说"**思维导图还是有问题，发音问题也没有解决**"。
+  这一轮的关键不是再改代码，而是**先确认用户在测哪个构建** —— 他把 `release/知识灵动助手.html`
+  （以及 Release 下载件）当成了验证对象，而那份是 **10-07 的产物**，构建源 `4815b1e` 里
+  导图算法还是坏的、也没有朗读修复；`npm run dev`（5173）这边一直是好的。
+  逐函数比对（旧组件内联布局段 vs 当前 `utils/mindMapLayout.ts`、`MindMap` 组件 147 行逐字、
+  `sanitizeMindMap`、导图提示词）证明**当前代码与 15 天前逐字等价**；再用两版算法对同一批数据
+  量化：修复版根中心偏 1.5px（居中），发布版偏 50px。于是结论收敛为"**发版即修好**"。
+- 用户随之提出"**发音准确更好，能接在线 TTS 比较好**" —— 朗读这一条从"修静默失败"
+  升级为"接入在线合成"（见下）。
+
+### 真因
+
+- **导图**：`topOffset` 的语义是"从子树带顶部到该节点中心的距离"，必须是 `subtreeH / 2`。
+  改成 `size.h / 2` 后，子节点少而自身高的分支被顶到带上沿，与兄弟子树带错位。
+  这是**重构时把"看起来多余"的 `Math.max` 删掉**造成的 —— 它其实在兜"节点比子节点总高更高"。
+- **朗读**：`getVoiceForLang()` 返回 null 时，`speak()` 只是**不设** `utterance.voice`。
+  Web Speech API 对此**不报错、也不保证出声**；本机（中文 Windows）Chromium 只有 3 个中文语音
+  （走 OneCore，注册表里的 en-US Zira 它看不见），英文只能靠引擎兜底 —— 结果就是"点了没反应"。
+  加上 `error` 状态没有任何出口，失败被彻底吞掉。
+- **续写**：`buildJSONContinuationPrompt(partial)` 只拿到 `accumulated`，调用方手里有 `topic`
+  却没传进去；`analyzeJSON` 也只吐 `completedKeys`，说不出"正在写哪个字段"。
+
+### 修复要点
+
+- `utils/mindMapLayout.ts`：`measureNode` 非叶子分支恢复成
+  `subtreeH = Math.max(size.h, childrenTotalH)`、`topOffset = bottomOffset = subtreeH / 2`。
+- `hooks/useSpeechSynthesis.ts`：新增模块级 `matchVoice()`；`speak()` 无匹配语音时退到
+  「引擎默认 → 第一个可用」，`utterance.lang` 跟随所选 voice，并暴露 `SpeechFallback`；
+  朗读前 `voices` 为空会再取一次；`stop()` 一并清降级状态。
+- `modules/translate/SentenceResult.tsx` / `WordResult.tsx`：渲染降级提示与朗读错误；
+  `WordResult` 新增 `sourceLang`（由 `index.tsx` 传入），朗读语言不再硬编码 `en-US`。
+- `services/streaming/partialJSON.ts`：`scan()` / `analyzeJSON()` 增加 `pendingKey`。
+- `services/baseAIProvider.ts`：新增 `describeJSONProgress()`；
+  `buildJSONContinuationPrompt(partial, task?, requiredKeys?)` 带上【本次任务】与【当前 JSON 进度】；
+  `generateJSONWithContinuation(..., taskLabel?)` 与四处调用点透传主题。
+- i18n：`speech.voiceFallback`（中英）；`i18n/languages.ts` 新增 `speechLanguageLabel()`。
+- **接入在线语音合成**（第二轮追加）：
+  - 先用真 Chromium 从 `file://` 页面直连各家 `/audio/speech`，**带对照组**证明探针有效：
+    OpenAI / Anthropic 被 CORS 拦（`TypeError: Failed to fetch`），智谱 / 硅基放行（`res.type === 'cors'`）；
+  - `services/onlineTts.ts`（新）：厂商预置（智谱 `glm-tts` 7 音色 / 硅基 `CosyVoice2-0.5B` 8 音色 / OpenAI）、
+    `deriveSpeechEndpoint()`（对话端点换后缀 `/chat/completions` → `/audio/speech`）、
+    `splitForTts()`（按 `input` 上限分块，保证不丢字）、`synthesizeSpeech()`
+    （二进制音频与 JSON base64/URL **两种回包都吃**）；
+  - `hooks/useSpeechConfigStore.ts`（新）：朗读偏好独立存储，模型/音色按厂商分别记；
+  - `hooks/useSpeechSynthesis.ts` 重构为**在线优先调度器**：在线走 `Audio`（可中断、逐块播放），
+    失败自动退本机并把原因说清楚（`SpeechNotice`），`SpeechFallback` 合并成 `notice`；
+  - `components/settings/SpeechSettings.tsx`（新）+ `Header.tsx` 第 4 个 tab「语音朗读」；
+  - `SentenceResult` / `WordResult` 改为渲染 `notice.message`。
+
+### 验证
+
+`tsc --noEmit` 干净；`vitest run` **563 例全过（42 文件）**（较 v1.7.3 的 529/40，+34 例）。
+导图：以 esbuild 载入 git 里的旧实现，与当前实现对 7 组夹具逐节点 / 逐连线比对**完全一致**，
+出问题那版跑同一对比会红；两版算法对同一批数据量化差 50px。
+朗读：真 Chromium 实测 —— 原文走兜底语音并出现降级提示；接入在线后（`page.route` 拦截
+`/audio/speech` 返回真 WAV）点"朗读原文"命中 `open.bigmodel.cn/api/paas/v4/audio/speech`，
+body `{"model":"glm-tts","input":"Good morning","voice":"tongtong","response_format":"wav"}`，
+**本机语音 0 次调用**、`Audio.play` 播放 blob、设置面板语音 tab 渲染完整。
+**已发版**：`v1.7.4`（PATCH），版本门禁六处一致。
+
 ## 2026-10-06 ~ 10-07（复制与导出重构 + 公式/PDF 修复 + 导图改截图 + Word/PDF 口径对齐与示意图导出 → 发布 v1.7.3）
 
 > 版本号更正：本轮工作原被拆成 `v1.8.0`（复制/导出重构）与 `v1.9.0`（公式/PDF）两个号，

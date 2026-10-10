@@ -51,6 +51,12 @@ interface ScanState {
   endIndex: number;
   /** 已完整闭合的顶层字段名 */
   completedKeys: string[];
+  /**
+   * **正在写**的顶层字段名（值为 `null` 表示当前没有键的值在写，例如刚闭合完一个字段）。
+   * 供续写提示词向模型报告"JSON 写到哪了"—— 只给"已完成"清单不够，
+   * 模型还需要知道"上一口气停在哪个字段上"才能精确续接。
+   */
+  pendingKey: string | null;
   /** 整个 JSON 是否已闭合 */
   complete: boolean;
 }
@@ -202,7 +208,11 @@ export function scan(buf: string): ScanState {
     }
   }
 
-  return { inString, stack, lastSafeIndex, endIndex, completedKeys, complete };
+  // 顶层容器帧上挂着的 pendingKey 就是"正在写的顶层字段"。
+  // 值本身是嵌套容器时 frames[0] 依旧是顶层帧，所以这里不必只认 stack.length === 1。
+  const pendingKey = frames.length > 0 ? frames[0].pendingKey : null;
+
+  return { inString, stack, lastSafeIndex, endIndex, completedKeys, complete, pendingKey };
 }
 
 /**
@@ -233,15 +243,24 @@ export function isCompleteJSON(raw: string): boolean {
 /**
  * 分析一段文本的 JSON 结构状态，返回权威判定结果。
  *
- * 与 isCompleteJSON 相比，额外吐出 completedKeys（已完整闭合的顶层字段名），
- * 供"字段齐全"类判定复用（例如超限续写不仅要括号闭合、还要核心字段都出齐）。
+ * 与 isCompleteJSON 相比，额外吐出 completedKeys（已完整闭合的顶层字段名）
+ * 与 pendingKey（正在写的顶层字段名），供"字段齐全"类判定与续写提示词复用
+ * （例如超限续写不仅要括号闭合、还要核心字段都出齐；续写提示词要向模型
+ * 报告"已完成哪些 / 正在写哪个 / 还差哪些"）。
  * 返回 null 表示文本里还没有 JSON 起始符（还在前言/围栏阶段）。
  */
-export function analyzeJSON(raw: string): { complete: boolean; completedKeys: string[] } | null {
+export function analyzeJSON(
+  raw: string
+): { complete: boolean; completedKeys: string[]; pendingKey: string | null } | null {
   const stripped = stripFence(raw);
   if (!stripped) return null;
   const st = scan(stripped);
-  return { complete: st.complete, completedKeys: st.complete ? Object.keys(parsePrefix(stripped, st.endIndex) ?? {}) : st.completedKeys };
+  return {
+    complete: st.complete,
+    completedKeys: st.complete ? Object.keys(parsePrefix(stripped, st.endIndex) ?? {}) : st.completedKeys,
+    // 已闭合时没有"正在写"的字段
+    pendingKey: st.complete ? null : st.pendingKey,
+  };
 }
 
 /**

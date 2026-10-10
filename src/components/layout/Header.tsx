@@ -10,10 +10,11 @@ import { ModelSelector } from '../settings/ModelSelector';
 import { ProviderKeyInput } from '../settings/ProviderKeyInput';
 import { AddProviderForm } from '../settings/AddProviderForm';
 import { WanxKeyInput } from '../settings/WanxKeyInput';
+import { SpeechSettings } from '../settings/SpeechSettings';
 import { PROVIDER_META, getProviderInfo, getModelInfo } from '../../types/aiProviders';
 import { localizedProviderName } from '../../i18n/strings/aiProviderTexts';
 
-type AITab = 'model' | 'keys' | 'addProvider';
+type AITab = 'model' | 'keys' | 'addProvider' | 'speech';
 
 interface HeaderProps {
   activeTab: TabType;
@@ -189,6 +190,7 @@ export function Header({ activeTab, onTabChange, onClearAllHistory }: HeaderProp
                       ['model', s.aiPanel.tabModel],
                       ['keys', s.aiPanel.tabKeys],
                       ['addProvider', s.aiPanel.tabAddVendor],
+                      ['speech', s.aiPanel.tabSpeech],
                     ] as const).map(([key, label]) => {
                       const active = activeAITab === key;
                       return (
@@ -251,6 +253,7 @@ export function Header({ activeTab, onTabChange, onClearAllHistory }: HeaderProp
                     )}
 
                     {activeAITab === 'addProvider' && <AddProviderForm />}
+                    {activeAITab === 'speech' && <SpeechSettings />}
                   </div>
                 </div>
               )}

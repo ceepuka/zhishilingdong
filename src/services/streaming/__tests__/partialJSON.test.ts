@@ -201,4 +201,25 @@ describe('isCompleteJSON / analyzeJSON（续写完整性判定的权威依据）
     expect(analyzeJSON('前言文字')).toBeNull();
     expect(analyzeJSON('')).toBeNull();
   });
+
+  it('analyzeJSON：给出「正在写的顶层字段」pendingKey（续写提示词要用它报告进度）', () => {
+    // 正在写 mindMap 的值（嵌套容器未闭合）→ pendingKey = mindMap
+    const writing = analyzeJSON('{"topic":"t","mindMap":[{"id":"r"}');
+    expect(writing!.complete).toBe(false);
+    expect(writing!.completedKeys).toEqual(expect.arrayContaining(['topic']));
+    expect(writing!.pendingKey).toBe('mindMap');
+
+    // 值刚闭合完、还没开始下一个键 → 没有"正在写"的字段
+    const between = analyzeJSON('{"topic":"t","mindMap":[]');
+    expect(between!.pendingKey).toBeNull();
+
+    // 整体已闭合 → 没有"正在写"的字段
+    const done = analyzeJSON('{"a":1}');
+    expect(done!.complete).toBe(true);
+    expect(done!.pendingKey).toBeNull();
+
+    // 字符串值写到一半 → 仍算"正在写该字段"
+    const strValue = analyzeJSON('{"topic":"加速');
+    expect(strValue!.pendingKey).toBe('topic');
+  });
 });
