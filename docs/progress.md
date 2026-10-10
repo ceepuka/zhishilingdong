@@ -132,7 +132,9 @@ v1.7.3 复制与导出重构 + 公式/PDF 自研 + 口径对齐 + 示意图导�
 
 **详细技术说明**：`docs/versions.md` v1.7.4、`docs/history.md` 2026-10-10 条目、`docs/issues.md` 同日四条。
 
-**发布**：2026-10-10 发布 `v1.7.4`（PATCH，并入一项朗读增强，理由见 `docs/versions.md` 版本号说明）。
+**发布**：2026-10-10 发布 `v1.7.4`（PATCH，并入一项朗读增强，理由见 `docs/versions.md` 版本号说明）——
+附注 tag + GitHub Release（附件 `zhishilingdong-v1.7.4.html` 2,757,169 字节 / `usage-v1.7.4.txt` 8,863 字节），
+匿名（不带 token）复验远端 sha256 与本地产物逐字节一致 → https://github.com/ceepuka/zhishilingdong/releases/tag/v1.7.4
 
 ## v1.7.0 版本工作明细（已完成，保留备查）
 

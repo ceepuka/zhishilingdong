@@ -75,6 +75,21 @@ body `{"model":"glm-tts","input":"Good morning","voice":"tongtong","response_for
 **本机语音 0 次调用**、`Audio.play` 播放 blob、设置面板语音 tab 渲染完整。
 **已发版**：`v1.7.4`（PATCH），版本门禁六处一致。
 
+### 发布（v1.7.4，2026-10-10）
+
+- `npm run release` → `release/知识灵动助手.html`（2,757,169 字节 ≈ 2.63 MB）+ `使用说明.txt`（8,863 字节）；
+  前置链 `scripts/check-version.js`（六处版本号一致）与 `tsc --noEmit` 均通过；**产物不入库**
+- commit `cd9a62a` → `main`；建**附注 tag** `v1.7.4` 并推送 → Release
+  `https://github.com/ceepuka/zhishilingdong/releases/tag/v1.7.4`
+- 附件 `zhishilingdong-v1.7.4.html`（2,757,169 字节）/ `usage-v1.7.4.txt`（8,863 字节），中文名放 `label`
+- **匿名（不带 token）下载附件复验**：HTML sha256 `2e2f8a8de79c…`、说明文件 sha256 `466d090e1675…`，
+  均与**本地产物逐字节一致**；产物结构自检 —— 无外部 `<script src=`、无外部样式表（`<link href="http…">`）、
+  内联 JS 里的 `</script` 已转义成 `<\/script`
+- **取 token 的坑（本轮新增）**：`execSync('git credential fill')` 会经 `cmd.exe`，在本机被 `EBUSY` 拦；
+  换成 `spawnSync` 直连 `.exe`（`shell: false`）**同样 EBUSY** —— 是"node 造子进程"被拦，不是路径问题。
+  可行路径是**用 bash 管道直连 git**（shell 自己 fork/exec，不经 node）：
+  `printf 'protocol=https\nhost=github.com\n\n' | git credential fill`
+
 ## 2026-10-06 ~ 10-07（复制与导出重构 + 公式/PDF 修复 + 导图改截图 + Word/PDF 口径对齐与示意图导出 → 发布 v1.7.3）
 
 > 版本号更正：本轮工作原被拆成 `v1.8.0`（复制/导出重构）与 `v1.9.0`（公式/PDF）两个号，

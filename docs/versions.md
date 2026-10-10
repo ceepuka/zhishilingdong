@@ -113,8 +113,12 @@
 
 - `tsc --noEmit` 干净；`vitest run` **563 例全过（42 文件）**（较 v1.7.3 的 529/40，+34 例）。
 - 真 Chromium：搜索页导图渲染 10 节点 / 9 连线、0 console 错误；父节点几何居中于其子树带。
-- 发布：`package.json` / `package-lock.json` / `docs/versions.md` / `README.md` / `docs/todo.md`
-  六处一致 `1.7.4`（`node scripts/check-version.js` 通过）。
+- 版本门禁：`package.json` / `package-lock.json`（顶层 + `packages[""]`）/ `docs/versions.md` /
+  `README.md` / `docs/todo.md` 六处一致 `1.7.4`（`node scripts/check-version.js` 通过，含 tag 比对）。
+- 产物：`release/知识灵动助手.html` **2,757,169 字节**（≈2.63 MB）+ `使用说明.txt`（8,863 字节），**不入库**。
+- 发布（2026-10-10）：commit `cd9a62a` → `main` + 附注 tag `v1.7.4` → Release
+  `https://github.com/ceepuka/zhishilingdong/releases/tag/v1.7.4`；附件 `zhishilingdong-v1.7.4.html` /
+  `usage-v1.7.4.txt`；**匿名（不带 token）下载复验** sha256 `2e2f8a8d…` / `466d090e…` 与本地产物**逐字节一致**。
 
 ## v1.7.3 (2026-10-06 ~ 10-07) —— 公式可读 + PDF 真正能看 + 正文示意图可导出
 

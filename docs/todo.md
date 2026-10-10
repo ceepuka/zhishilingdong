@@ -48,6 +48,10 @@
   已实测：`file://` 发布形态下智谱、硅基可直连（OpenAI 官方被 CORS 拦，需自配代理）。
 - 验证：`tsc` 干净、`vitest` **563 例 / 42 文件全过**；真 Chromium 复验导图渲染、
   在线朗读链路（命中 `/audio/speech`、本机语音 0 调用）、设置面板语音 tab。
+- ✅ **已发布**（2026-10-10）：tag `v1.7.4` → Release
+  https://github.com/ceepuka/zhishilingdong/releases/tag/v1.7.4 ；附件 `zhishilingdong-v1.7.4.html`
+  （2,757,169 字节 = 2.63 MB）+ `usage-v1.7.4.txt`（8,863 字节），中文名放 `label`；
+  **匿名（不带 token）复验**两个附件 sha256（`2e2f8a8d…` / `466d090e…`）均与**本地产物逐字节一致**
 
 **最后更新**：2026-10-10
 
